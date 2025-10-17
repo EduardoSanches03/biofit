@@ -1,0 +1,18 @@
+[
+  {
+    "ContainingType": "BiotFit.API.Controllers.UsuarioController",
+    "Method": "Cadastrar",
+    "RelativePath": "Usuario/cadastrar",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "usuario",
+        "Type": "BiotFit.API.Models.Usuario",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": []
+  }
+]
