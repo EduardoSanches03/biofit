@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="..\build\BiotFit.API.props" />
-</Project>
