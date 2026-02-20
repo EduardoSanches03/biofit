@@ -153,14 +153,11 @@ function MenuIcon({ id }) {
 function readStoredSession() {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed?.token || !parsed?.email || !parsed?.name) return null;
-    return parsed;
+    localStorage.removeItem(SESSION_KEY);
   } catch {
-    return null;
+    // noop
   }
+  return null;
 }
 
 function readStoredTheme() {
