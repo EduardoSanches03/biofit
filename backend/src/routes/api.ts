@@ -1,16 +1,9 @@
-const express = require("express");
-const cors = require("cors");
-const { randomUUID } = require("crypto");
-const { Pool } = require("pg");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-require("dotenv").config();
-
-const app = express();
-const PORT = process.env.PORT || 3001;
-const DATABASE_URL = process.env.DATABASE_URL;
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
-const TOKEN_EXPIRES_IN = process.env.TOKEN_EXPIRES_IN || "7d";
+import type { Express } from "express";
+import { randomUUID } from "crypto";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { pool } from "../config/database";
+import { JWT_SECRET, TOKEN_EXPIRES_IN } from "../config/env";
 const PHYSICAL_ACTIVITY_FACTORS = {
   sedentario: 1.2,
   leve: 1.375,
@@ -32,23 +25,8 @@ const SKINFOLD_SITES = new Set([
   "panturrilha",
 ]);
 
-if (!DATABASE_URL) {
-  console.error("DATABASE_URL nao configurada. Defina no arquivo .env.");
-  process.exit(1);
-}
 
-if (!process.env.JWT_SECRET) {
-  console.warn("JWT_SECRET nao configurada. Usando valor padrao inseguro para desenvolvimento.");
-}
-
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-});
-
-app.use(cors());
-app.use(express.json());
-
-async function ensureDatabase() {
+export async function ensureDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -617,14 +595,14 @@ function inferPhysicalGoalFromPatientGoal(value, fallback = "manter") {
   return normalizedFallback;
 }
 
-function normalizePhysicalAssessmentMeasurements(list, keyName, valueName) {
+function normalizePhysicalAssessmentMeasurements(list, keyName, valueName): any[] {
   if (!Array.isArray(list)) return [];
   return list
     .map((entry) => ({
       [keyName]: String(entry?.[keyName] || "").trim(),
       [valueName]: Number(entry?.[valueName]),
     }))
-    .filter((entry) => entry[keyName] && Number.isFinite(entry[valueName]) && entry[valueName] > 0);
+    .filter((entry) => entry[keyName] && Number.isFinite(entry[valueName]) && Number(entry[valueName]) > 0);
 }
 
 function calculatePhysicalAssessmentResult({
@@ -885,7 +863,7 @@ function validateAuthPayload(body) {
 
 function signUserToken(user) {
   return jwt.sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, {
-    expiresIn: TOKEN_EXPIRES_IN,
+    expiresIn: TOKEN_EXPIRES_IN as any,
   });
 }
 
@@ -932,7 +910,7 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: "Token invalido ou expirado." });
   }
 }
-
+export function registerApiRoutes(app: Express) {
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
@@ -1062,9 +1040,53 @@ app.get("/api/dashboard/summary", async (req, res, next) => {
   }
 });
 
+app.get("/api/consultations/latest", async (req, res, next) => {
+  try {
+    const patientIdRaw = Array.isArray(req.query.patientId)
+      ? req.query.patientId[0]
+      : req.query.patientId;
+    const patientId = typeof patientIdRaw === "string" ? patientIdRaw.trim() : "";
+
+    if (!patientId) {
+      return res.status(400).json({ error: "Parametro patientId obrigatorio." });
+    }
+
+    const { rows } = await pool.query(
+      `
+        SELECT
+          c.id,
+          c.patient_id AS "patientId",
+          p.name AS "patientName",
+          c.type,
+          c.notes,
+          c.scheduled_at AS "scheduledAt",
+          c.completed_at AS "completedAt",
+          c.created_at AS "createdAt"
+        FROM consultations c
+        LEFT JOIN patients p
+          ON p.id = c.patient_id AND p.user_id = c.user_id
+        WHERE c.user_id = $1
+          AND c.patient_id = $2
+        ORDER BY c.scheduled_at DESC, c.created_at DESC
+        LIMIT 1;
+      `,
+      [req.auth.userId, patientId],
+    );
+
+    if (!rows.length) {
+      return res.status(204).send();
+    }
+
+    return res.json(rows[0]);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.get("/api/consultations", async (req, res, next) => {
   try {
-    const dateParam = req.query.date;
+    const dateRaw = Array.isArray(req.query.date) ? req.query.date[0] : req.query.date;
+    const dateParam = typeof dateRaw === "string" ? dateRaw : "";
     if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       return res.status(400).json({ error: "Parametro date obrigatorio no formato YYYY-MM-DD." });
     }
@@ -1098,7 +1120,8 @@ app.get("/api/consultations", async (req, res, next) => {
 
 app.get("/api/consultations/calendar", async (req, res, next) => {
   try {
-    const monthParam = req.query.month;
+    const monthRaw = Array.isArray(req.query.month) ? req.query.month[0] : req.query.month;
+    const monthParam = typeof monthRaw === "string" ? monthRaw : "";
     if (!monthParam || !/^\d{4}-\d{2}$/.test(monthParam)) {
       return res.status(400).json({ error: "Parametro month obrigatorio no formato YYYY-MM." });
     }
@@ -2153,21 +2176,7 @@ app.delete("/api/foods/:id", async (req, res, next) => {
   }
 });
 
-app.use((error, _req, res, _next) => {
-  console.error(error);
-  res.status(500).json({ error: "Erro interno do servidor." });
-});
-
-async function startServer() {
-  try {
-    await ensureDatabase();
-    app.listen(PORT, () => {
-      console.log(`BioFit API rodando em http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error("Falha ao iniciar backend:", error);
-    process.exit(1);
-  }
 }
 
-startServer();
+
+

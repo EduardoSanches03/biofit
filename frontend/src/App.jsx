@@ -153,11 +153,18 @@ function MenuIcon({ id }) {
 function readStoredSession() {
   if (typeof window === "undefined") return null;
   try {
-    localStorage.removeItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.token) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
-    // noop
+    localStorage.removeItem(SESSION_KEY);
+    return null;
   }
-  return null;
 }
 
 function readStoredTheme() {
@@ -875,12 +882,16 @@ export default function App() {
   const [foodSearch, setFoodSearch] = useState("");
   const [selectedFoodCategory, setSelectedFoodCategory] = useState("Todos");
   const [showFoodForm, setShowFoodForm] = useState(false);
+  const [editingPatientId, setEditingPatientId] = useState("");
+  const [editPatientForm, setEditPatientForm] = useState(emptyPatient);
+  const [patientEditSubmitting, setPatientEditSubmitting] = useState(false);
   const [editingFoodId, setEditingFoodId] = useState("");
   const [editFoodForm, setEditFoodForm] = useState(emptyFood);
   const [foodEditSubmitting, setFoodEditSubmitting] = useState(false);
   const [patientSubmitting, setPatientSubmitting] = useState(false);
   const [foodSubmitting, setFoodSubmitting] = useState(false);
   const [consultationSubmitting, setConsultationSubmitting] = useState(false);
+  const [consultationCompletingId, setConsultationCompletingId] = useState("");
   const [weightEntrySubmitting, setWeightEntrySubmitting] = useState(false);
   const [targetRefreshSubmitting, setTargetRefreshSubmitting] = useState(false);
   const [mealPlanSubmitting, setMealPlanSubmitting] = useState(false);
@@ -933,6 +944,10 @@ export default function App() {
   const selectedPatient = useMemo(
     () => patients.find((item) => item.id === routePatientId) || null,
     [patients, routePatientId],
+  );
+  const editingPatient = useMemo(
+    () => patients.find((item) => item.id === editingPatientId) || null,
+    [patients, editingPatientId],
   );
 
   const selectedMealPlanItems = useMemo(
@@ -1904,12 +1919,16 @@ export default function App() {
     setLatestPatientConsultation(null);
     setLatestPatientConsultationLoading(false);
     setShowFoodForm(false);
+    setEditingPatientId("");
+    setEditPatientForm(emptyPatient);
+    setPatientEditSubmitting(false);
     setEditingFoodId("");
     setEditFoodForm(emptyFood);
     setFoodEditSubmitting(false);
     setPatientSubmitting(false);
     setFoodSubmitting(false);
     setConsultationSubmitting(false);
+    setConsultationCompletingId("");
     setWeightEntrySubmitting(false);
     setTargetRefreshSubmitting(false);
     setMealPlanSubmitting(false);
@@ -2609,6 +2628,30 @@ export default function App() {
       setError(requestError.message);
     } finally {
       setConsultationSubmitting(false);
+    }
+  }
+
+  async function markConsultationAsCompleted(consultationId) {
+    const normalizedConsultationId = String(consultationId || "").trim();
+    if (!normalizedConsultationId || consultationCompletingId) return;
+    setError("");
+    setConsultationCompletingId(normalizedConsultationId);
+    try {
+      const updatedConsultation = await api.completeConsultation(normalizedConsultationId);
+      setConsultations((prev) =>
+        prev.map((consultation) =>
+          consultation.id === normalizedConsultationId
+            ? {
+                ...consultation,
+                completedAt: updatedConsultation.completedAt || consultation.completedAt || new Date().toISOString(),
+              }
+            : consultation,
+        ),
+      );
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setConsultationCompletingId("");
     }
   }
 
@@ -3388,29 +3431,62 @@ export default function App() {
     }
   }
 
-  async function editPatient(item) {
-    const name = window.prompt("Nome do paciente:", item.name);
-    if (name === null) return;
-    const ageInput = window.prompt("Idade:", item.age ?? "");
-    if (ageInput === null) return;
-    const goal = window.prompt("Objetivo:", item.goal ?? "");
-    if (goal === null) return;
-    const phone = window.prompt("Telefone:", item.phone ?? "");
-    if (phone === null) return;
-    const email = window.prompt("Email:", item.email ?? "");
-    if (email === null) return;
+  function editPatient(item) {
+    setError("");
+    setEditPatientForm({
+      name: item.name ?? "",
+      age: item.age !== null && item.age !== undefined ? String(item.age) : "",
+      goal: item.goal ?? "",
+      phone: item.phone ?? "",
+      email: item.email ?? "",
+    });
+    setEditingPatientId(item.id);
+  }
 
+  function closePatientEditor() {
+    if (patientEditSubmitting) return;
+    setEditingPatientId("");
+    setEditPatientForm(emptyPatient);
+  }
+
+  async function handlePatientEditSubmit(event) {
+    event.preventDefault();
+    if (!editingPatientId) return;
+
+    const name = String(editPatientForm.name || "").trim();
+    if (!name) {
+      setError("Informe o nome do paciente.");
+      return;
+    }
+
+    const ageInput = String(editPatientForm.age || "").trim();
+    let parsedAge;
+    if (ageInput) {
+      const age = Number(ageInput);
+      if (!Number.isInteger(age) || age < 0 || age > 120) {
+        setError("Idade invalida. Use um valor inteiro entre 0 e 120.");
+        return;
+      }
+      parsedAge = age;
+    }
+
+    setError("");
+    setPatientEditSubmitting(true);
     try {
-      await api.updatePatient(item.id, {
+      await api.updatePatient(editingPatientId, {
         name,
-        age: ageInput ? Number(ageInput) : undefined,
-        goal,
-        phone,
-        email,
+        age: parsedAge,
+        goal: String(editPatientForm.goal || "").trim(),
+        phone: String(editPatientForm.phone || "").trim(),
+        email: String(editPatientForm.email || "").trim(),
       });
+      setEditingPatientId("");
+      setEditPatientForm(emptyPatient);
       await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setPatientEditSubmitting(false);
     }
   }
 
@@ -5735,14 +5811,33 @@ export default function App() {
                     )}
                     {!scheduleLoading &&
                       consultations.map((item) => (
-                      <div className="schedule-row" key={item.id}>
+                      <div className={`schedule-row ${item.completedAt ? "completed" : ""}`} key={item.id}>
                         <div className="schedule-person">
-                          <div>
-                            <strong>{item.patientName || "Paciente nao informado"}</strong>
-                            <p>{item.type || "Consulta"}</p>
+                          <div className="schedule-person-copy">
+                            <strong className="schedule-patient-name">
+                              {item.patientName || "Paciente nao informado"}
+                            </strong>
+                            <p className="schedule-consultation-type">{item.type || "Consulta"}</p>
                           </div>
                         </div>
-                        <strong className="time">{formatTime(item.scheduledAt)}</strong>
+                        <div className="schedule-end">
+                          {item.completedAt ? (
+                            <span className="schedule-status-done">
+                              <span className="schedule-status-dot" aria-hidden="true" />
+                              Realizada
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="schedule-complete-btn"
+                              onClick={() => markConsultationAsCompleted(item.id)}
+                              disabled={consultationCompletingId === item.id}
+                            >
+                              {consultationCompletingId === item.id ? "Salvando..." : "Consulta realizada"}
+                            </button>
+                          )}
+                          <strong className="time">{formatTime(item.scheduledAt)}</strong>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -5970,6 +6065,128 @@ export default function App() {
                 ))}
               </div>
             </section>
+          )}
+
+          {editingPatientId && (
+            <div
+              className="patient-edit-backdrop"
+              role="dialog"
+              aria-modal="true"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) closePatientEditor();
+              }}
+            >
+              <section className="patient-edit-modal">
+                <header className="patient-edit-header">
+                  <div>
+                    <h4>Editar paciente</h4>
+                    <p>Atualize os dados principais e mantenha o perfil completo para consultas e plano alimentar.</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="patient-edit-close"
+                    onClick={closePatientEditor}
+                    disabled={patientEditSubmitting}
+                  >
+                    Fechar
+                  </button>
+                </header>
+
+                <form className="patient-edit-form" onSubmit={handlePatientEditSubmit}>
+                  <div className="patient-edit-grid">
+                    <label className="patient-edit-field patient-edit-field-full" htmlFor="edit-patient-name">
+                      <span>Nome completo</span>
+                      <input
+                        id="edit-patient-name"
+                        type="text"
+                        required
+                        value={editPatientForm.name}
+                        onChange={(event) =>
+                          setEditPatientForm((prev) => ({ ...prev, name: event.target.value }))
+                        }
+                        placeholder="Ex.: Ana Paula Souza"
+                        autoComplete="name"
+                      />
+                    </label>
+
+                    <label className="patient-edit-field" htmlFor="edit-patient-age">
+                      <span>Idade</span>
+                      <input
+                        id="edit-patient-age"
+                        type="number"
+                        min="0"
+                        max="120"
+                        value={editPatientForm.age}
+                        onChange={(event) =>
+                          setEditPatientForm((prev) => ({ ...prev, age: event.target.value }))
+                        }
+                        placeholder="Ex.: 31"
+                        inputMode="numeric"
+                      />
+                    </label>
+
+                    <label className="patient-edit-field" htmlFor="edit-patient-phone">
+                      <span>Telefone</span>
+                      <input
+                        id="edit-patient-phone"
+                        type="text"
+                        value={editPatientForm.phone}
+                        onChange={(event) =>
+                          setEditPatientForm((prev) => ({ ...prev, phone: event.target.value }))
+                        }
+                        placeholder="Ex.: (11) 99999-9999"
+                        autoComplete="tel"
+                      />
+                    </label>
+
+                    <label className="patient-edit-field patient-edit-field-full" htmlFor="edit-patient-email">
+                      <span>Email</span>
+                      <input
+                        id="edit-patient-email"
+                        type="email"
+                        value={editPatientForm.email}
+                        onChange={(event) =>
+                          setEditPatientForm((prev) => ({ ...prev, email: event.target.value }))
+                        }
+                        placeholder="Ex.: paciente@email.com"
+                        autoComplete="email"
+                      />
+                    </label>
+
+                    <label className="patient-edit-field patient-edit-field-full" htmlFor="edit-patient-goal">
+                      <span>Objetivo</span>
+                      <input
+                        id="edit-patient-goal"
+                        type="text"
+                        value={editPatientForm.goal}
+                        onChange={(event) =>
+                          setEditPatientForm((prev) => ({ ...prev, goal: event.target.value }))
+                        }
+                        placeholder="Ex.: Emagrecimento com ganho de massa magra"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="patient-edit-preview">
+                    <strong>{editPatientForm.name || "Paciente sem nome"}</strong>
+                    <div className="patient-edit-meta">
+                      <span>{editPatientForm.age ? `${editPatientForm.age} anos` : "Idade nao informada"}</span>
+                      <span>{editPatientForm.email || "Email nao informado"}</span>
+                      <span>{editingPatient ? `Criado em ${formatDateTime(editingPatient.createdAt)}` : "--"}</span>
+                    </div>
+                  </div>
+
+                  <div className="patient-edit-actions">
+                    <button type="button" className="ghost" onClick={closePatientEditor} disabled={patientEditSubmitting}>
+                      Cancelar
+                    </button>
+                    <button type="submit" disabled={patientEditSubmitting}>
+                      {patientEditSubmitting ? "Salvando..." : "Salvar alteracoes"}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </div>
           )}
 
           {!loading && section === "foods" && (

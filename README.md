@@ -38,6 +38,20 @@ npm run dev
 - Frontend: `http://localhost:5173`
 - Backend/API: `http://localhost:3001`
 
+## Deploy no GitHub Pages
+
+GitHub Pages publica apenas o frontend estatico. O backend precisa estar publicado separadamente.
+
+1. Publique o backend (Render, Railway, Fly.io, etc.) e garanta uma URL publica, por exemplo:
+   - `https://seu-backend.com/api`
+2. No repositorio do GitHub, configure a variavel:
+   - `Settings > Secrets and variables > Actions > Variables`
+   - Nome: `VITE_API_URL`
+   - Valor: URL publica da API (com `/api`)
+3. Execute o workflow de deploy do Pages novamente.
+
+Sem `VITE_API_URL`, o deploy de frontend agora falha para evitar publicar uma versao quebrada.
+
 ## Autenticacao
 
 - O login agora valida usuario no PostgreSQL (Neon).

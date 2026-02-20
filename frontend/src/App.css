@@ -198,13 +198,53 @@ h1,h2,h3{margin:0;font-family:Sora,sans-serif}
 
 .schedule-list{padding:14px;display:grid;gap:10px}
 
-.schedule-row{padding:10px 12px;background:#edf2ef;border-radius:12px;display:flex;justify-content:space-between;align-items:center}
+.schedule-row{position:relative;padding:12px 14px;background:linear-gradient(140deg,#edf4f2,#e8f1ee);border:1px solid #d2e3dd;border-radius:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
 
-.schedule-person{display:flex;align-items:center;gap:10px}
+.schedule-row::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:6px;background:#8bb4a6;opacity:.7}
 
-.schedule-row p{margin:1px 0 0;font-size:13px;color:var(--text-soft)}
+.schedule-row:hover,.schedule-row:focus-within{transform:translateY(-1px);border-color:#b6d4c8;box-shadow:0 10px 20px #0b3a2a12}
 
-.time{color:#096d53;font-size:22px}
+.schedule-row.completed{background:linear-gradient(140deg,#e3f5ee,#d8eee7);border-color:#a7d7c4}
+
+.schedule-row.completed::before{background:linear-gradient(180deg,#10a177,#0f7b5d);opacity:1}
+
+.schedule-person{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+
+.schedule-person-copy{min-width:0}
+
+.schedule-patient-name{display:block;font-size:17px;line-height:1.1;color:#113a2f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.schedule-consultation-type{margin:3px 0 0;font-size:13px;color:#5a746a}
+
+.schedule-end{display:flex;align-items:center;gap:10px}
+
+.schedule-complete-btn{border:1px solid #8cc8b2;background:#f4fbf8;color:#136f56;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:800;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transform:translateY(2px);transition:opacity .16s ease,transform .16s ease,background .16s ease,border-color .16s ease,color .16s ease}
+
+.schedule-complete-btn:hover:not(:disabled){background:#e8f6f1;border-color:#72bca0}
+
+.schedule-row:hover .schedule-complete-btn,.schedule-row:focus-within .schedule-complete-btn{opacity:1;pointer-events:auto;transform:translateY(0)}
+
+.schedule-complete-btn:disabled{opacity:.72;cursor:not-allowed}
+
+.schedule-status-done{display:inline-flex;align-items:center;gap:7px;border-radius:999px;background:#d4efe3;color:#0e654d;border:1px solid #a8d6c4;padding:6px 10px;font-size:11px;font-weight:800;line-height:1}
+
+.schedule-status-dot{position:relative;width:12px;height:12px;border-radius:50%;background:#47c89c;box-shadow:inset 0 0 0 1px #1e8d69}
+
+.schedule-status-dot::after{content:"";position:absolute;left:4px;top:2px;width:3px;height:6px;border:1.8px solid #0f5f47;border-top:0;border-left:0;transform:rotate(45deg)}
+
+.time{display:inline-flex;align-items:center;justify-content:center;min-width:74px;padding:6px 10px;border-radius:11px;background:#d6f2e8;color:#0b835f;border:1px solid #a8d8c4;font-size:32px;line-height:1;letter-spacing:.4px;font-weight:800}
+
+.schedule-row.completed .time{background:#caeddf;border-color:#8dcab2;color:#0ba271}
+
+@media (hover: none){
+  .schedule-complete-btn{opacity:1;pointer-events:auto;transform:none}
+}
+
+@media (max-width: 640px){
+  .schedule-row{align-items:flex-start}
+  .schedule-end{flex-direction:column;align-items:flex-end;gap:6px}
+  .time{min-width:68px;font-size:26px;padding:5px 8px}
+}
 
 .new-btn{margin:0 14px 14px;border:1px solid #0b7a5d;background:#0b7a5d;color:#fff;border-radius:12px;height:42px;font-weight:700;cursor:pointer}
 .new-btn:disabled{opacity:.7;cursor:not-allowed}
@@ -379,6 +419,60 @@ to{opacity:1}
 .food-edit-actions button{min-width:140px}
 
 .food-edit-actions .ghost{border:1px solid #bfd3cb;background:#edf3f0;color:#224038}
+
+.patient-edit-backdrop{position:fixed;top:0;right:0;bottom:0;left:0;background:#08141070;z-index:35;display:flex;align-items:center;justify-content:center;padding:16px}
+
+.patient-edit-modal{width:min(760px,100%);max-height:calc(100vh - 32px);overflow:auto;border:1px solid #c9d8d2;border-radius:18px;background:#f7faf8;box-shadow:0 22px 50px #02120d59}
+
+.patient-edit-header{position:sticky;top:0;z-index:1;background:#f7faf8;border-bottom:1px solid #d3dfda;padding:14px 16px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+
+.patient-edit-header h4{margin:0;font-family:Sora,sans-serif;font-size:21px;color:#0b1f18}
+
+.patient-edit-header p{margin:6px 0 0;color:#48645a;font-size:13px;line-height:1.45;max-width:520px}
+
+.patient-edit-close{border:1px solid #b9cec6;border-radius:10px;background:#eef4f1;color:#24423a;font:inherit;font-weight:700;padding:8px 12px;cursor:pointer}
+
+.patient-edit-form{padding:14px 16px 18px;display:grid;gap:12px}
+
+.patient-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+
+.patient-edit-field{display:grid;gap:6px}
+
+.patient-edit-field span{font-size:12px;font-weight:700;color:#2f4f45;letter-spacing:.01em;padding-left:2px}
+
+.patient-edit-field input{font:inherit;border-radius:12px;border:1px solid #cad9d3;padding:10px 12px;background:#fff;color:#0f172a}
+
+.patient-edit-field input::placeholder{color:#8ba198}
+
+.patient-edit-field input:focus{outline:none;border-color:#10b981;box-shadow:0 0 0 4px rgba(16,185,129,.14)}
+
+.patient-edit-field-full{grid-column:1 / -1}
+
+.patient-edit-preview{border:1px solid #d4e3dd;border-radius:12px;background:linear-gradient(180deg,#eff7f4,#eaf3ef);padding:10px 12px;display:grid;gap:8px}
+
+.patient-edit-preview strong{font-size:16px;font-family:Sora,sans-serif;color:#0f2c24}
+
+.patient-edit-meta{display:flex;flex-wrap:wrap;gap:8px}
+
+.patient-edit-meta span{border:1px solid #cfe0d8;border-radius:999px;background:#f7fbf9;color:#3b5a51;font-size:12px;font-weight:700;padding:5px 9px}
+
+.patient-edit-actions{display:flex;justify-content:flex-end;gap:10px}
+
+.patient-edit-actions button{min-width:140px;font:inherit;border-radius:12px;padding:10px 12px;font-weight:700;cursor:pointer}
+
+.patient-edit-actions button:disabled{opacity:.72;cursor:not-allowed}
+
+.patient-edit-actions .ghost{border:1px solid #bfd3cb;background:#edf3f0;color:#224038}
+
+.patient-edit-actions button[type="submit"]{border:0;background:#137f61;color:#fff}
+
+@media (max-width: 720px){
+  .patient-edit-header{align-items:stretch}
+  .patient-edit-close{width:100%}
+  .patient-edit-grid{grid-template-columns:1fr}
+  .patient-edit-actions{flex-direction:column}
+  .patient-edit-actions button{width:100%}
+}
 
 .patients-grid{padding:0 18px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 
@@ -3667,9 +3761,70 @@ to{opacity:1}
 .app.app-dark .foods-table-wrap,
 .app.app-dark .patients-empty,
 .app.app-dark .schedule-row {
-  background: #15233a;
-  border-color: #2d405b;
+  background: linear-gradient(140deg, #15253b, #132236);
+  border-color: #2d4a61;
   color: #d7e5f8;
+}
+
+.app.app-dark .schedule-row::before {
+  background: #3d5f7c;
+  opacity: 0.75;
+}
+
+.app.app-dark .schedule-row:hover,
+.app.app-dark .schedule-row:focus-within {
+  border-color: #3d6586;
+  box-shadow: 0 10px 22px rgba(2, 8, 18, 0.45);
+}
+
+.app.app-dark .schedule-row.completed {
+  background: linear-gradient(140deg, #1a3a44, #17343f);
+  border-color: #2f6f71;
+}
+
+.app.app-dark .schedule-row.completed::before {
+  background: linear-gradient(180deg, #2dd4a0, #1ea77b);
+  opacity: 1;
+}
+
+.app.app-dark .schedule-patient-name {
+  color: #e7f2ff;
+}
+
+.app.app-dark .schedule-consultation-type {
+  color: #9cb5cf;
+}
+
+.app.app-dark .schedule-complete-btn {
+  background: #1a3445;
+  border-color: #37717a;
+  color: #7fe6c0;
+}
+
+.app.app-dark .schedule-complete-btn:hover:not(:disabled) {
+  background: #20445a;
+  border-color: #4f8d96;
+}
+
+.app.app-dark .schedule-status-done {
+  background: #1f4a44;
+  color: #8becc7;
+  border-color: #367b71;
+}
+
+.app.app-dark .schedule-status-dot {
+  background: #59d7aa;
+  box-shadow: inset 0 0 0 1px #2e8f74;
+}
+
+.app.app-dark .schedule-status-dot::after {
+  border-color: #174f3f;
+}
+
+.app.app-dark .time {
+  background: #1d3f4d;
+  border-color: #356e7a;
+  color: #49e4b2;
 }
 
 .app.app-dark .patient-card {
@@ -3824,6 +3979,61 @@ to{opacity:1}
   background: #1a2a40;
   border-color: #314762;
   color: #dce8f8;
+}
+
+.app.app-dark .patient-edit-modal {
+  background: #16253c;
+  border-color: #2c405b;
+  color: #d7e5f8;
+}
+
+.app.app-dark .patient-edit-header {
+  background: #16253c;
+  border-bottom-color: #31445f;
+}
+
+.app.app-dark .patient-edit-header h4 {
+  color: #e9f1fc;
+}
+
+.app.app-dark .patient-edit-header p {
+  color: #9ab0ca;
+}
+
+.app.app-dark .patient-edit-close,
+.app.app-dark .patient-edit-actions .ghost {
+  background: #1a2a40;
+  border-color: #314762;
+  color: #dce8f8;
+}
+
+.app.app-dark .patient-edit-field span {
+  color: #b4c7de;
+}
+
+.app.app-dark .patient-edit-field input {
+  background: #111e31;
+  border-color: #30445f;
+  color: #e6eefb;
+}
+
+.app.app-dark .patient-edit-field input::placeholder {
+  color: #7f97b2;
+}
+
+.app.app-dark .patient-edit-preview {
+  border-color: #35526f;
+  background: linear-gradient(180deg, #13253d, #142a44);
+}
+
+.app.app-dark .patient-edit-preview strong {
+  color: #e8f2fe;
+}
+
+.app.app-dark .patient-edit-meta span {
+  background: #1a2f47;
+  border-color: #34516f;
+  color: #c7d9ee;
 }
 
 .app.app-dark .patient-fullscreen-page {
@@ -4332,6 +4542,255 @@ to{opacity:1}
 .app.app-dark .patient-meal-modal {
   background: #111d31;
   border-color: #324864;
+}
+
+.app.app-dark .patient-meal-modal-backdrop {
+  background: rgba(4, 10, 20, 0.76);
+  backdrop-filter: blur(4px);
+}
+
+.app.app-dark .patient-plan-card .patient-overview-icon {
+  background: linear-gradient(140deg, #14374a 0%, #195947 100%);
+  color: #7ae4c0;
+  box-shadow: 0 12px 24px rgba(5, 20, 34, 0.5);
+}
+
+.app.app-dark .patient-plan-card .patient-overview-actions {
+  border-top-color: #304761;
+}
+
+.app.app-dark .patient-meal-modal-head h5 {
+  color: #ecf4ff;
+}
+
+.app.app-dark .patient-meal-description-field span {
+  color: #bad0e9;
+}
+
+.app.app-dark .patient-meal-builder {
+  border-color: #35506f;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(52, 211, 153, 0.12), rgba(52, 211, 153, 0) 42%),
+    linear-gradient(180deg, #0f1f34 0%, #12243c 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.app.app-dark .patient-meal-group-chip {
+  background: #1a2d46;
+  border-color: #345372;
+  color: #bed3eb;
+}
+
+.app.app-dark .patient-meal-group-chip:hover {
+  background: #203652;
+  border-color: #447097;
+}
+
+.app.app-dark .patient-meal-group-chip.active,
+.app.app-dark .patient-meal-group-chip:disabled {
+  background: #1e3a35;
+  border-color: #2f7565;
+  color: #9ee6cd;
+}
+
+.app.app-dark .patient-meal-group {
+  --group-border: #3a5570;
+  --group-bg: #14273d;
+  --group-surface: #172d46;
+  --group-accent: #e8f2fe;
+  --group-chip-bg: #1f3552;
+  --group-chip-border: #3a5f82;
+  --group-chip-text: #c8dbf1;
+  border-color: var(--group-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.app.app-dark .patient-meal-builder > .patient-meal-group:nth-of-type(4n + 1) {
+  --group-border: #3a5570;
+  --group-bg: #14273d;
+  --group-surface: #172d46;
+  --group-accent: #e8f2fe;
+  --group-chip-bg: #1f3552;
+  --group-chip-border: #3a5f82;
+  --group-chip-text: #c8dbf1;
+}
+
+.app.app-dark .patient-meal-builder > .patient-meal-group:nth-of-type(4n + 2) {
+  --group-border: #2f615f;
+  --group-bg: #143038;
+  --group-surface: #173842;
+  --group-accent: #dbfcf3;
+  --group-chip-bg: #1d4249;
+  --group-chip-border: #36747d;
+  --group-chip-text: #b8efe3;
+}
+
+.app.app-dark .patient-meal-builder > .patient-meal-group:nth-of-type(4n + 3) {
+  --group-border: #4a4f7a;
+  --group-bg: #242846;
+  --group-surface: #2a3053;
+  --group-accent: #f0ecff;
+  --group-chip-bg: #323c63;
+  --group-chip-border: #5f6ea0;
+  --group-chip-text: #d3cbff;
+}
+
+.app.app-dark .patient-meal-builder > .patient-meal-group:nth-of-type(4n + 4) {
+  --group-border: #695640;
+  --group-bg: #312716;
+  --group-surface: #3a2f1b;
+  --group-accent: #fdebc8;
+  --group-chip-bg: #463824;
+  --group-chip-border: #876841;
+  --group-chip-text: #f2d9a8;
+}
+
+.app.app-dark .patient-meal-group-title-toggle:focus-visible {
+  outline-color: rgba(94, 234, 212, 0.48);
+}
+
+.app.app-dark .patient-substitution-arrow {
+  background: rgba(11, 25, 41, 0.72);
+}
+
+.app.app-dark .patient-meal-group-actions .patient-action-btn {
+  background: #1a2f47;
+  border-color: #385777;
+  color: #d9e8fa;
+}
+
+.app.app-dark .patient-meal-group-actions .patient-action-btn:hover {
+  background: #203a58;
+  border-color: #4a6f95;
+}
+
+.app.app-dark .patient-meal-group-actions .danger,
+.app.app-dark .patient-meal-row .danger,
+.app.app-dark .patient-substitution-head .danger {
+  background: #3d1f2b;
+  border-color: #74445d;
+  color: #ffc1d3;
+}
+
+.app.app-dark .patient-meal-group-actions .danger:hover,
+.app.app-dark .patient-meal-row .danger:hover,
+.app.app-dark .patient-substitution-head .danger:hover {
+  background: #4a2635;
+  border-color: #8a4f6d;
+  color: #ffd2df;
+}
+
+.app.app-dark .patient-meal-item-card,
+.app.app-dark .patient-substitution-card {
+  border-color: var(--group-border);
+  background: var(--group-surface);
+}
+
+.app.app-dark .patient-meal-item-display strong,
+.app.app-dark .patient-meal-row-meta strong {
+  color: #eaf2fe;
+}
+
+.app.app-dark .patient-meal-item-display span,
+.app.app-dark .patient-meal-portion-field span {
+  color: #adc2d9;
+}
+
+.app.app-dark .patient-meal-row input::placeholder,
+.app.app-dark .patient-substitution-head input::placeholder,
+.app.app-dark .patient-meal-group-create input::placeholder,
+.app.app-dark .patient-meal-description-field input::placeholder {
+  color: #7f97b2;
+}
+
+.app.app-dark .patient-item-nutrients span,
+.app.app-dark .patient-meal-totals span {
+  background: #1a2f47;
+  border-color: #34516f;
+  color: #c7d9ee;
+}
+
+.app.app-dark .patient-item-nutrients span:nth-child(1),
+.app.app-dark .patient-meal-totals span:nth-child(1) {
+  background: #163830;
+  border-color: #2f6c5b;
+  color: #95e4c8;
+}
+
+.app.app-dark .patient-item-nutrients span:nth-child(2),
+.app.app-dark .patient-meal-totals span:nth-child(2) {
+  background: #182f4d;
+  border-color: #3e6897;
+  color: #a9cbff;
+}
+
+.app.app-dark .patient-item-nutrients span:nth-child(3),
+.app.app-dark .patient-meal-totals span:nth-child(3) {
+  background: #3c2a15;
+  border-color: #8a6228;
+  color: #f8ce86;
+}
+
+.app.app-dark .patient-item-nutrients span:nth-child(4),
+.app.app-dark .patient-meal-totals span:nth-child(4) {
+  background: #253245;
+  border-color: #4b6079;
+  color: #c8d3e1;
+}
+
+.app.app-dark .patient-item-nutrients span:nth-child(5),
+.app.app-dark .patient-meal-totals span:nth-child(5) {
+  background: #2b2448;
+  border-color: #5c4a8c;
+  color: #cfbcff;
+}
+
+.app.app-dark .patient-meal-summary {
+  border-color: #35526f;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(52, 211, 153, 0.1), rgba(52, 211, 153, 0) 45%),
+    linear-gradient(180deg, #12263f 0%, #142b45 100%);
+}
+
+.app.app-dark .patient-substitutions-panel {
+  border-top-color: #375775;
+  background: rgba(10, 24, 40, 0.54);
+}
+
+.app.app-dark .patient-history-item {
+  border-color: #35526f;
+  background: #13273f;
+}
+
+.app.app-dark .patient-history-item header strong,
+.app.app-dark .patient-history-body p strong,
+.app.app-dark .patient-history-group-title,
+.app.app-dark .patient-history-substitution-card > strong {
+  color: #e9f2ff;
+}
+
+.app.app-dark .patient-history-item header span,
+.app.app-dark .patient-history-empty-group,
+.app.app-dark .patient-history-substitutions-title {
+  color: #9eb6d1;
+}
+
+.app.app-dark .patient-history-body p {
+  color: #bed0e8;
+}
+
+.app.app-dark .patient-history-group {
+  border-color: #35526f;
+  background: #0f2238;
+}
+
+.app.app-dark .patient-history-substitutions {
+  border-top-color: #35526f;
+}
+
+.app.app-dark .patient-history-substitution-card {
+  border-color: #35526f;
+  background: #152c45;
 }
 
 @media (max-width: 900px) {

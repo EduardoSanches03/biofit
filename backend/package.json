@@ -2,10 +2,11 @@
   "name": "biofit-backend",
   "version": "1.0.0",
   "private": true,
-  "main": "server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon server.js",
-    "start": "node server.js"
+    "dev": "npm exec tsx -- watch src/server.ts",
+    "build": "npm exec tsc -- -p tsconfig.json",
+    "start": "npm run build && node dist/server.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -16,6 +17,12 @@
     "pg": "^8.18.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.4.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   }
 }

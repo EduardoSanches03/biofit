@@ -1,4 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
+const configuredApiUrl = (import.meta.env.VITE_API_URL || "").trim();
+const API_BASE = configuredApiUrl
+  ? configuredApiUrl.replace(/\/+$/, "")
+  : import.meta.env.PROD
+    ? ""
+    : "http://localhost:3001/api";
 const SESSION_KEY = "biofit_nutri_session";
 
 function getSessionToken() {
@@ -14,6 +19,10 @@ function getSessionToken() {
 }
 
 async function request(path, options = {}, withAuth = true) {
+  if (!API_BASE) {
+    throw new Error("API nao configurada em producao. Defina VITE_API_URL no deploy do frontend.");
+  }
+
   const token = withAuth ? getSessionToken() : "";
   const headers = {
     "Content-Type": "application/json",
@@ -23,10 +32,17 @@ async function request(path, options = {}, withAuth = true) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers,
-    ...options,
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers,
+      ...options,
+    });
+  } catch {
+    throw new Error(
+      "Nao foi possivel conectar na API. Verifique VITE_API_URL e se o backend esta online.",
+    );
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -48,6 +64,8 @@ export const api = {
     request(`/consultations/calendar?month=${encodeURIComponent(month)}`),
   createConsultation: (body) =>
     request("/consultations", { method: "POST", body: JSON.stringify(body) }),
+  completeConsultation: (id) =>
+    request(`/consultations/${encodeURIComponent(id)}/complete`, { method: "PATCH" }),
   getPlans: (patientId = "") =>
     request(`/plans${patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""}`),
   savePlan: (patientId, body) =>
