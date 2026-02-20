@@ -55,6 +55,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  getPhysicalAssessments: (patientId = "") =>
+    request(
+      `/physical-assessments${patientId ? `?patientId=${encodeURIComponent(patientId)}` : ""}`,
+    ),
+  getPhysicalAssessment: (id) => request(`/physical-assessments/${encodeURIComponent(id)}`),
+  createPhysicalAssessment: (body) =>
+    request("/physical-assessments", { method: "POST", body: JSON.stringify(body) }),
+  updatePhysicalAssessment: (id, body) =>
+    request(`/physical-assessments/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deletePhysicalAssessment: (id) =>
+    request(`/physical-assessments/${encodeURIComponent(id)}`, { method: "DELETE" }),
   getPatients: () => request("/patients"),
   createPatient: (body) => request("/patients", { method: "POST", body: JSON.stringify(body) }),
   updatePatient: (id, body) =>

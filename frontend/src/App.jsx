@@ -37,6 +37,39 @@ const MEAL_GROUP_PRESETS = [
   "Ceia",
 ];
 const DEFAULT_MEAL_OCCASION = "Almoco";
+const PHYSICAL_ACTIVITY_LEVELS = [
+  { value: "sedentario", label: "Sedentário" },
+  { value: "leve", label: "Leve" },
+  { value: "moderado", label: "Moderado" },
+  { value: "alto", label: "Alto" },
+  { value: "muitoAlto", label: "Muito alto" },
+];
+const PHYSICAL_GOALS = [
+  { value: "perder", label: "Perder" },
+  { value: "manter", label: "Manter" },
+  { value: "ganhar", label: "Ganhar" },
+];
+const PHYSICAL_SEX_OPTIONS = [
+  { value: "masculino", label: "Masculino" },
+  { value: "feminino", label: "Feminino" },
+];
+const CIRCUMFERENCE_FIELDS = [
+  { key: "cintura", label: "Cintura" },
+  { key: "quadril", label: "Quadril" },
+  { key: "pescoco", label: "Pescoço" },
+  { key: "braco", label: "Braço" },
+  { key: "coxa", label: "Coxa" },
+];
+const SKINFOLD_FIELDS = [
+  { key: "triceps", label: "Tríceps" },
+  { key: "subescapular", label: "Subescapular" },
+  { key: "suprailiaca", label: "Suprailíaca" },
+  { key: "abdominal", label: "Abdominal" },
+  { key: "peitoral", label: "Peitoral" },
+  { key: "axilarMedia", label: "Axilar média" },
+  { key: "coxa", label: "Coxa" },
+  { key: "panturrilha", label: "Panturrilha" },
+];
 
 const menuItems = [
   { id: "dashboard", label: "Dashboard" },
@@ -148,6 +181,16 @@ function initials(name) {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function formatPatientCardName(name) {
+  const normalized = String(name || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!normalized) return "Sem nome";
+  const parts = normalized.split(" ");
+  if (parts.length <= 2) return normalized;
+  return `${parts[0]} ${parts[parts.length - 1]}`;
 }
 
 function formatValue(value) {
@@ -408,6 +451,145 @@ function readPatientsRoute(pathname) {
   };
 }
 
+function formatDateOnly(value) {
+  if (!value) return "Sem data";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Sem data";
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(parsed);
+}
+
+function physicalActivityLabel(value) {
+  return PHYSICAL_ACTIVITY_LEVELS.find((item) => item.value === value)?.label || value || "--";
+}
+
+function physicalGoalLabel(value) {
+  return PHYSICAL_GOALS.find((item) => item.value === value)?.label || value || "--";
+}
+
+function inferPhysicalGoalFromPatientGoal(value, fallback = "manter") {
+  const normalizedFallback = PHYSICAL_GOALS.some((item) => item.value === fallback) ? fallback : "manter";
+  const raw = normalizeHeader(value);
+  if (!raw) return normalizedFallback;
+  if (
+    raw.includes("perd") ||
+    raw.includes("emagrec") ||
+    raw.includes("redu") ||
+    raw.includes("deficit") ||
+    raw.includes("seca")
+  ) {
+    return "perder";
+  }
+  if (
+    raw.includes("ganh") ||
+    raw.includes("hipertrof") ||
+    raw.includes("massa") ||
+    raw.includes("aument") ||
+    raw.includes("bulk")
+  ) {
+    return "ganhar";
+  }
+  if (raw.includes("mant")) return "manter";
+  return normalizedFallback;
+}
+
+function physicalSexLabel(value) {
+  return PHYSICAL_SEX_OPTIONS.find((item) => item.value === value)?.label || value || "--";
+}
+
+function buildEmptyPhysicalAssessmentForm(patient, latestAssessment) {
+  const baseCircumferences = CIRCUMFERENCE_FIELDS.reduce((acc, field) => ({ ...acc, [field.key]: "" }), {});
+  const baseSkinfolds = SKINFOLD_FIELDS.reduce((acc, field) => ({ ...acc, [field.key]: "" }), {});
+  const latestCircumferences = (latestAssessment?.circumferences || []).reduce((acc, item) => {
+    if (!item?.type) return acc;
+    acc[item.type] = String(item.valueCm ?? "").replace(".", ",");
+    return acc;
+  }, {});
+  const latestSkinfolds = (latestAssessment?.skinfolds || []).reduce((acc, item) => {
+    if (!item?.site) return acc;
+    acc[item.site] = String(item.valueMm ?? "").replace(".", ",");
+    return acc;
+  }, {});
+
+  return {
+    date: isoToBrDate(formatDateKey(new Date())),
+    weightKg: patient?.currentWeight ? String(patient.currentWeight).replace(".", ",") : "",
+    heightCm: latestAssessment?.heightCm ? String(latestAssessment.heightCm).replace(".", ",") : "",
+    age:
+      Number.isFinite(Number(patient?.age)) && Number(patient?.age) > 0
+        ? String(Math.trunc(Number(patient.age)))
+        : latestAssessment?.age
+          ? String(latestAssessment.age)
+          : "",
+    sex: latestAssessment?.sex || "",
+    activityLevel: latestAssessment?.activityLevel || "moderado",
+    notes: "",
+    circumferences: { ...baseCircumferences, ...latestCircumferences },
+    skinfolds: { ...baseSkinfolds, ...latestSkinfolds },
+  };
+}
+
+function buildPhysicalAssessmentPreviewFromForm(form, resolvedGoal = "manter") {
+  const weightKg = parseFoodNumber(form?.weightKg);
+  const heightCm = parseFoodNumber(form?.heightCm);
+  const age = Number(form?.age);
+  const sex = String(form?.sex || "").trim();
+  const activityLevel = String(form?.activityLevel || "").trim();
+  const goal = PHYSICAL_GOALS.some((item) => item.value === resolvedGoal) ? resolvedGoal : "manter";
+
+  const activityFactorByLevel = {
+    sedentario: 1.2,
+    leve: 1.375,
+    moderado: 1.55,
+    alto: 1.725,
+    muitoAlto: 1.9,
+  };
+  if (
+    !Number.isFinite(weightKg) ||
+    weightKg <= 0 ||
+    !Number.isFinite(heightCm) ||
+    heightCm <= 0 ||
+    !Number.isInteger(age) ||
+    age <= 0 ||
+    !["masculino", "feminino"].includes(sex) ||
+    !Object.prototype.hasOwnProperty.call(activityFactorByLevel, activityLevel) ||
+    !["perder", "manter", "ganhar"].includes(goal)
+  ) {
+    return null;
+  }
+
+  const bmrRaw =
+    sex === "masculino"
+      ? 10 * weightKg + 6.25 * heightCm - 5 * age + 5
+      : 10 * weightKg + 6.25 * heightCm - 5 * age - 161;
+  const tdeeRaw = bmrRaw * activityFactorByLevel[activityLevel];
+
+  let calorieTargetRaw = tdeeRaw;
+  if (goal === "perder") calorieTargetRaw = tdeeRaw - 400;
+  if (goal === "ganhar") calorieTargetRaw = tdeeRaw + 300;
+  if (goal === "perder") {
+    calorieTargetRaw = Math.max(calorieTargetRaw, sex === "masculino" ? 1500 : 1200);
+  }
+
+  const proteinMultiplier = goal === "perder" ? 1.8 : 1.6;
+  const proteinRaw = weightKg * proteinMultiplier;
+  let fatRaw = weightKg * 0.8;
+  let carbsRaw = (calorieTargetRaw - (proteinRaw * 4 + fatRaw * 9)) / 4;
+  if (carbsRaw < 0) {
+    fatRaw = weightKg * 0.6;
+    carbsRaw = (calorieTargetRaw - (proteinRaw * 4 + fatRaw * 9)) / 4;
+  }
+  if (carbsRaw < 0) carbsRaw = 0;
+
+  return {
+    bmr: Number(bmrRaw.toFixed(2)),
+    tdee: Number(tdeeRaw.toFixed(2)),
+    calorieTarget: Number(calorieTargetRaw.toFixed(2)),
+    proteinG: Number(proteinRaw.toFixed(2)),
+    fatG: Number(fatRaw.toFixed(2)),
+    carbsG: Number(carbsRaw.toFixed(2)),
+  };
+}
+
 function deterministicSeed(text) {
   return Array.from(String(text || "seed")).reduce(
     (acc, char, index) => (acc + char.charCodeAt(0) * (index + 1)) % 9973,
@@ -460,8 +642,33 @@ function normalizePatientWeightHistory(rawHistory) {
 
 function buildProgressLabelsFromHistory(weightHistory) {
   if (!weightHistory.length) return [];
-  const formatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" });
-  return weightHistory.map((entry) => formatter.format(new Date(entry.recordedAt)));
+  const dayFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" });
+  const timeFormatter = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const dayCounts = new Map();
+  const dayTimeCounts = new Map();
+
+  weightHistory.forEach((entry) => {
+    const recordedAt = new Date(entry.recordedAt);
+    const dayKey = formatDateKey(recordedAt);
+    dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
+  });
+
+  return weightHistory.map((entry) => {
+    const recordedAt = new Date(entry.recordedAt);
+    const dayKey = formatDateKey(recordedAt);
+    const dayLabel = dayFormatter.format(recordedAt);
+    if ((dayCounts.get(dayKey) || 0) <= 1) return dayLabel;
+
+    const timeLabel = timeFormatter.format(recordedAt);
+    const dayTimeKey = `${dayKey}-${timeLabel}`;
+    const duplicateCount = (dayTimeCounts.get(dayTimeKey) || 0) + 1;
+    dayTimeCounts.set(dayTimeKey, duplicateCount);
+
+    if (duplicateCount > 1) {
+      return `${dayLabel} ${timeLabel} (${duplicateCount})`;
+    }
+    return `${dayLabel} ${timeLabel}`;
+  });
 }
 
 function normalizePatientTargetHistory(rawHistory) {
@@ -500,16 +707,19 @@ function hasReachedTargetValue(currentWeight, targetWeight, initialWeight) {
   return current >= target - tolerance;
 }
 
-function buildSparklinePath(values, width, height, padding = 14) {
+function buildSparklinePath(values, width, height, options = {}) {
   if (!values.length) return "";
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
+  const paddingX = Number.isFinite(options.paddingX) ? options.paddingX : 14;
+  const paddingY = Number.isFinite(options.paddingY) ? options.paddingY : 14;
+  const minValue = Number.isFinite(options.minValue) ? options.minValue : Math.min(...values);
+  const maxValue = Number.isFinite(options.maxValue) ? options.maxValue : Math.max(...values);
   const span = maxValue - minValue || 1;
-  const xStep = values.length > 1 ? (width - padding * 2) / (values.length - 1) : 0;
+  const xStep = values.length > 1 ? (width - paddingX * 2) / (values.length - 1) : 0;
+  const chartHeight = height - paddingY * 2;
   return values
     .map((value, index) => {
-      const x = padding + index * xStep;
-      const y = padding + ((maxValue - value) / span) * (height - padding * 2);
+      const x = paddingX + index * xStep;
+      const y = paddingY + ((maxValue - value) / span) * chartHeight;
       return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
@@ -554,6 +764,15 @@ function calculateMealPlanItemTotals(item, foodsCatalog) {
   };
 }
 
+function isMealPlanItemReady(item) {
+  const portion = Number(item?.portion);
+  return Boolean(item?.foodId) && Number.isFinite(portion) && portion > 0;
+}
+
+function mealPlanSubstitutionItemEditKey(groupName, substitutionId, itemId) {
+  return `${String(groupName || "")}::${String(substitutionId || "")}::${String(itemId || "")}`;
+}
+
 function revokePhotoEntries(entries) {
   entries.forEach((photo) => {
     if (photo?.url) {
@@ -592,20 +811,32 @@ export default function App() {
   const [patientMealPlanExpanded, setPatientMealPlanExpanded] = useState({});
   const [patientMealPlanGroups, setPatientMealPlanGroups] = useState({});
   const [patientMealPlanGroupDraft, setPatientMealPlanGroupDraft] = useState({});
+  const [patientMealPlanGroupCollapsed, setPatientMealPlanGroupCollapsed] = useState({});
+  const [patientMealPlanItemEditMode, setPatientMealPlanItemEditMode] = useState({});
+  const [patientMealPlanSubstitutionItemEditMode, setPatientMealPlanSubstitutionItemEditMode] = useState({});
   const [patientMealPlanSubstitutions, setPatientMealPlanSubstitutions] = useState({});
   const [patientMealPlanSubstitutionExpanded, setPatientMealPlanSubstitutionExpanded] = useState({});
   const [patientMealPlanDescription, setPatientMealPlanDescription] = useState({});
   const [patientMealPlanHistory, setPatientMealPlanHistory] = useState({});
+  const [patientPhysicalAssessments, setPatientPhysicalAssessments] = useState({});
+  const [showPhysicalAssessmentModal, setShowPhysicalAssessmentModal] = useState(false);
+  const [showPhysicalAssessmentFormModal, setShowPhysicalAssessmentFormModal] = useState(false);
+  const [physicalAssessmentFormMode, setPhysicalAssessmentFormMode] = useState("create");
+  const [physicalAssessmentFormTab, setPhysicalAssessmentFormTab] = useState("basicos");
+  const [editingPhysicalAssessmentId, setEditingPhysicalAssessmentId] = useState("");
+  const [physicalAssessmentForm, setPhysicalAssessmentForm] = useState(() =>
+    buildEmptyPhysicalAssessmentForm(null, null),
+  );
+  const [physicalAssessmentSubmitting, setPhysicalAssessmentSubmitting] = useState(false);
   const [showMealPlanHistoryModal, setShowMealPlanHistoryModal] = useState(false);
   const [showProgressHistoryModal, setShowProgressHistoryModal] = useState(false);
   const [showWeightEntryModal, setShowWeightEntryModal] = useState(false);
   const [showTargetRefreshModal, setShowTargetRefreshModal] = useState(false);
-  const [weightEntryMode, setWeightEntryMode] = useState("initial");
   const [weightEntryForm, setWeightEntryForm] = useState({
-    initialWeight: "",
-    targetWeight: "",
     progressWeight: "",
   });
+  const [editingWeightEntryId, setEditingWeightEntryId] = useState("");
+  const [activeProgressPointId, setActiveProgressPointId] = useState("");
   const [targetRefreshValue, setTargetRefreshValue] = useState("");
   const [patientPhotos, setPatientPhotos] = useState({});
   const [latestPatientConsultation, setLatestPatientConsultation] = useState(null);
@@ -625,6 +856,8 @@ export default function App() {
   const foodImportInputRef = useRef(null);
   const patientPhotosRef = useRef({});
   const settingsMenuRef = useRef(null);
+  const alertedTargetMilestoneKeyRef = useRef("");
+  const isDevelopmentMode = import.meta.env.DEV;
   const [foodImportFeedback, setFoodImportFeedback] = useState(null);
   const [consultations, setConsultations] = useState([]);
   const [calendarCounts, setCalendarCounts] = useState({});
@@ -700,6 +933,21 @@ export default function App() {
     [patientMealPlanGroupDraft, routePatientId],
   );
 
+  const selectedMealPlanGroupCollapsedMap = useMemo(
+    () => (routePatientId ? patientMealPlanGroupCollapsed[routePatientId] || {} : {}),
+    [patientMealPlanGroupCollapsed, routePatientId],
+  );
+
+  const selectedMealPlanItemEditModeMap = useMemo(
+    () => (routePatientId ? patientMealPlanItemEditMode[routePatientId] || {} : {}),
+    [patientMealPlanItemEditMode, routePatientId],
+  );
+
+  const selectedMealPlanSubstitutionItemEditModeMap = useMemo(
+    () => (routePatientId ? patientMealPlanSubstitutionItemEditMode[routePatientId] || {} : {}),
+    [patientMealPlanSubstitutionItemEditMode, routePatientId],
+  );
+
   const selectedMealPlanSubstitutionsMap = useMemo(
     () => (routePatientId ? patientMealPlanSubstitutions[routePatientId] || {} : {}),
     [patientMealPlanSubstitutions, routePatientId],
@@ -715,6 +963,16 @@ export default function App() {
     [patientMealPlanDescription, routePatientId],
   );
 
+  const selectedPatientPhysicalAssessments = useMemo(() => {
+    if (!routePatientId) return [];
+    return [...(patientPhysicalAssessments[routePatientId] || [])].sort((a, b) => {
+      const dateA = new Date(a.date || a.createdAt || 0).getTime();
+      const dateB = new Date(b.date || b.createdAt || 0).getTime();
+      if (dateA !== dateB) return dateB - dateA;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
+  }, [patientPhysicalAssessments, routePatientId]);
+
   const selectedPatientPhotos = useMemo(
     () => (routePatientId ? patientPhotos[routePatientId] || [] : []),
     [patientPhotos, routePatientId],
@@ -729,6 +987,33 @@ export default function App() {
     () => normalizePatientTargetHistory(selectedPatient?.targetHistory),
     [selectedPatient],
   );
+
+  const latestPhysicalAssessment = useMemo(
+    () => selectedPatientPhysicalAssessments[0] || null,
+    [selectedPatientPhysicalAssessments],
+  );
+  const canRegisterWeightProgress = selectedPatientPhysicalAssessments.length > 0;
+
+  const physicalAssessmentEvolution = useMemo(() => {
+    if (selectedPatientPhysicalAssessments.length < 2) return null;
+    const latest = selectedPatientPhysicalAssessments[0];
+    const oldest = selectedPatientPhysicalAssessments[selectedPatientPhysicalAssessments.length - 1];
+    return {
+      weightDelta: Number((Number(latest.weightKg || 0) - Number(oldest.weightKg || 0)).toFixed(2)),
+      tdeeDelta: Number((Number(latest.tdee || 0) - Number(oldest.tdee || 0)).toFixed(2)),
+    };
+  }, [selectedPatientPhysicalAssessments]);
+  const resolvedPhysicalAssessmentGoal = useMemo(
+    () => inferPhysicalGoalFromPatientGoal(selectedPatient?.goal, latestPhysicalAssessment?.goal || "manter"),
+    [latestPhysicalAssessment?.goal, selectedPatient?.goal],
+  );
+
+  const physicalAssessmentPreviewResult = useMemo(
+    () => buildPhysicalAssessmentPreviewFromForm(physicalAssessmentForm, resolvedPhysicalAssessmentGoal),
+    [physicalAssessmentForm, resolvedPhysicalAssessmentGoal],
+  );
+
+  const isPhysicalAssessmentReadOnly = physicalAssessmentFormMode === "view";
 
   const progressTarget =
     selectedPatient?.targetWeight !== undefined &&
@@ -760,7 +1045,52 @@ export default function App() {
     }
     return buildProgressLabels(progressSeries.length);
   }, [progressSeries.length, selectedPatientWeightHistory]);
-  const progressPath = useMemo(() => buildSparklinePath(progressSeries, 660, 260), [progressSeries]);
+  const progressChartWidth = 660;
+  const progressChartHeight = 260;
+  const progressChartPaddingX = 38;
+  const progressChartPaddingY = 24;
+  const progressChartLeftX = progressChartPaddingX;
+  const progressChartRightX = progressChartWidth - progressChartPaddingX;
+  const progressChartBottomY = progressChartHeight - progressChartPaddingY;
+  const progressScale = useMemo(() => {
+    if (!progressSeries.length) return null;
+    const rawMin = Math.min(...progressSeries);
+    const rawMax = Math.max(...progressSeries);
+    const rawSpan = rawMax - rawMin;
+    const breathingSpace = Math.max(0.6, rawSpan * 0.18);
+    const minValue = Math.max(0, Number((rawMin - breathingSpace).toFixed(2)));
+    const maxValue = Number((rawMax + breathingSpace).toFixed(2));
+    const span = maxValue - minValue || 1;
+    return {
+      minValue,
+      maxValue,
+      span,
+      innerWidth: progressChartWidth - progressChartPaddingX * 2,
+      innerHeight: progressChartHeight - progressChartPaddingY * 2,
+    };
+  }, [progressSeries]);
+  const progressPath = useMemo(() => {
+    if (!progressScale) return "";
+    return buildSparklinePath(progressSeries, progressChartWidth, progressChartHeight, {
+      paddingX: progressChartPaddingX,
+      paddingY: progressChartPaddingY,
+      minValue: progressScale.minValue,
+      maxValue: progressScale.maxValue,
+    });
+  }, [progressChartHeight, progressChartPaddingX, progressChartPaddingY, progressChartWidth, progressScale, progressSeries]);
+  const progressYAxisTicks = useMemo(() => {
+    if (!progressScale) return [];
+    return [0, 0.5, 1].map((ratio) => ({
+      ratio,
+      value: Number((progressScale.maxValue - progressScale.span * ratio).toFixed(1)),
+      y: progressChartPaddingY + progressScale.innerHeight * ratio,
+    }));
+  }, [progressChartPaddingY, progressScale]);
+  const progressTargetY = useMemo(() => {
+    if (progressTarget === null || !progressScale) return null;
+    const clampedTarget = Math.min(progressScale.maxValue, Math.max(progressScale.minValue, progressTarget));
+    return progressChartPaddingY + ((progressScale.maxValue - clampedTarget) / progressScale.span) * progressScale.innerHeight;
+  }, [progressChartPaddingY, progressScale, progressTarget]);
   const progressCurrent = progressSeries.length > 0 ? progressSeries[progressSeries.length - 1] : null;
   const progressStart = progressSeries.length > 0 ? progressSeries[0] : progressCurrent;
   const progressDelta =
@@ -807,18 +1137,19 @@ export default function App() {
           : progressCurrent;
     return hasReachedTargetValue(progressCurrent, activeTargetEntry.targetWeight, cycleStartWeight);
   }, [activeTargetCycleStartWeight, activeTargetEntry, progressCurrent, progressStart]);
+  const activeTargetMilestoneKey = useMemo(() => {
+    if (!selectedPatient?.id || !activeTargetEntry) return "";
+    return `${selectedPatient.id}:${activeTargetEntry.id || "target"}:${activeTargetEntry.setAt || ""}:${activeTargetEntry.targetWeight}`;
+  }, [activeTargetEntry, selectedPatient?.id]);
+  useEffect(() => {
+    if (!shouldShowTargetRefreshAlert || !activeTargetMilestoneKey) return;
+    if (alertedTargetMilestoneKeyRef.current === activeTargetMilestoneKey) return;
+    alertedTargetMilestoneKeyRef.current = activeTargetMilestoneKey;
+    window.alert("Meta atual atingida. Defina uma nova meta para continuar a progressao.");
+  }, [activeTargetMilestoneKey, shouldShowTargetRefreshAlert]);
   const progressHistoryEntries = useMemo(() => {
     const entries = [];
-    const initialEntry = selectedPatientWeightHistory[0] || null;
-
-    if (initialEntry) {
-      entries.push({
-        id: `initial-weight-${initialEntry.id}`,
-        title: "Pesagem inicial",
-        value: `${formatDecimal(initialEntry.weight)} kg`,
-        date: initialEntry.recordedAt,
-      });
-    }
+    const firstWeightEntry = selectedPatientWeightHistory[0] || null;
 
     if (selectedPatientTargetHistory.length > 0) {
       selectedPatientTargetHistory.forEach((entry, index) => {
@@ -826,7 +1157,7 @@ export default function App() {
           id: `target-${entry.id}`,
           title: index === 0 ? "Meta inicial" : `Nova meta ${index}`,
           value: `${formatDecimal(entry.targetWeight)} kg`,
-          date: entry.setAt || initialEntry?.recordedAt || "",
+          date: entry.setAt || firstWeightEntry?.recordedAt || "",
         });
       });
     } else if (progressTarget !== null) {
@@ -834,14 +1165,14 @@ export default function App() {
         id: "initial-target",
         title: "Meta inicial",
         value: `${formatDecimal(progressTarget)} kg`,
-        date: selectedPatient?.targetWeightSetAt || initialEntry?.recordedAt || "",
+        date: selectedPatient?.targetWeightSetAt || firstWeightEntry?.recordedAt || "",
       });
     }
 
-    selectedPatientWeightHistory.slice(initialEntry ? 1 : 0).forEach((entry, index) => {
+    selectedPatientWeightHistory.forEach((entry, index) => {
       entries.push({
         id: `progress-${entry.id}`,
-        title: `Progressao ${index + 1}`,
+        title: `Progressão ${index + 1}`,
         value: `${formatDecimal(entry.weight)} kg`,
         date: entry.recordedAt,
       });
@@ -854,22 +1185,30 @@ export default function App() {
     });
   }, [progressTarget, selectedPatient?.targetWeightSetAt, selectedPatientTargetHistory, selectedPatientWeightHistory]);
   const progressPoints = useMemo(() => {
-    if (!progressSeries.length) return [];
-    const chartWidth = 660;
-    const chartHeight = 260;
-    const padding = 14;
-    const minValue = Math.min(...progressSeries);
-    const maxValue = Math.max(...progressSeries);
-    const span = maxValue - minValue || 1;
-    const xStep =
-      progressSeries.length > 1 ? (chartWidth - padding * 2) / (progressSeries.length - 1) : 0;
-    return progressSeries.map((value, index) => ({
-      key: `${index}-${value}`,
-      value,
-      x: padding + index * xStep,
-      y: padding + ((maxValue - value) / span) * (chartHeight - padding * 2),
-    }));
-  }, [progressSeries]);
+    if (!progressSeries.length || !progressScale) return [];
+    const xStep = progressSeries.length > 1 ? progressScale.innerWidth / (progressSeries.length - 1) : 0;
+    const latestIndex = progressSeries.length - 1;
+    return progressSeries.map((value, index) => {
+      const sourceEntry = selectedPatientWeightHistory[index] || null;
+      const sourceEntryId = String(sourceEntry?.id || "").trim();
+      const isAssessmentSource = sourceEntryId.startsWith("assessment-");
+      return {
+        key: `${index}-${value}`,
+        value,
+        sourceEntry,
+        sourceEntryId,
+        isAssessmentSource,
+        canManage: Boolean(sourceEntry) && !isAssessmentSource,
+        isLatest: index === latestIndex,
+        x: progressChartPaddingX + index * xStep,
+        y: progressChartPaddingY + ((progressScale.maxValue - value) / progressScale.span) * progressScale.innerHeight,
+      };
+    });
+  }, [progressChartPaddingX, progressChartPaddingY, progressScale, progressSeries, selectedPatientWeightHistory]);
+  useEffect(() => {
+    setActiveProgressPointId("");
+    setEditingWeightEntryId("");
+  }, [routePatientId]);
 
   const mealPlanTotals = useMemo(() => {
     return selectedMealPlanItems.reduce(
@@ -974,11 +1313,12 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      const [summaryData, patientsData, foodsData, plansData] = await Promise.all([
+      const [summaryData, patientsData, foodsData, plansData, physicalAssessmentsData] = await Promise.all([
         api.getSummary(),
         api.getPatients(),
         api.getFoods(),
         api.getPlans(),
+        api.getPhysicalAssessments(),
       ]);
       setSummary(summaryData);
       setPatients(patientsData);
@@ -990,6 +1330,7 @@ export default function App() {
       const nextMealPlanSubstitutions = {};
       const nextMealPlanDescription = {};
       const nextMealPlanHistory = {};
+      const nextPhysicalAssessments = {};
 
       (plansData || []).forEach((plan) => {
         const patientId = String(plan?.patientId || "").trim();
@@ -1005,12 +1346,20 @@ export default function App() {
         nextMealPlanHistory[patientId] = Array.isArray(plan.history) ? plan.history : [];
       });
 
+      (physicalAssessmentsData || []).forEach((assessment) => {
+        const patientId = String(assessment?.patientId || "").trim();
+        if (!patientId) return;
+        if (!nextPhysicalAssessments[patientId]) nextPhysicalAssessments[patientId] = [];
+        nextPhysicalAssessments[patientId].push(assessment);
+      });
+
       setPatientMealPlans(nextMealPlans);
       setPatientMealPlanSavedAt(nextMealPlanSavedAt);
       setPatientMealPlanGroups(nextMealPlanGroups);
       setPatientMealPlanSubstitutions(nextMealPlanSubstitutions);
       setPatientMealPlanDescription(nextMealPlanDescription);
       setPatientMealPlanHistory(nextMealPlanHistory);
+      setPatientPhysicalAssessments(nextPhysicalAssessments);
     } catch (requestError) {
       if (
         requestError.message === "Nao autenticado." ||
@@ -1138,6 +1487,8 @@ export default function App() {
 
   useEffect(() => {
     if (!isPatientProfileRoute) {
+      setShowPhysicalAssessmentModal(false);
+      setShowPhysicalAssessmentFormModal(false);
       setShowMealPlanHistoryModal(false);
     }
   }, [isPatientProfileRoute]);
@@ -1236,16 +1587,26 @@ export default function App() {
     setPatientMealPlanExpanded({});
     setPatientMealPlanGroups({});
     setPatientMealPlanGroupDraft({});
+    setPatientMealPlanGroupCollapsed({});
+    setPatientMealPlanItemEditMode({});
+    setPatientMealPlanSubstitutionItemEditMode({});
     setPatientMealPlanSubstitutions({});
     setPatientMealPlanSubstitutionExpanded({});
     setPatientMealPlanDescription({});
     setPatientMealPlanHistory({});
+    setPatientPhysicalAssessments({});
+    setShowPhysicalAssessmentModal(false);
+    setShowPhysicalAssessmentFormModal(false);
+    setPhysicalAssessmentFormMode("create");
+    setPhysicalAssessmentFormTab("basicos");
+    setEditingPhysicalAssessmentId("");
+    setPhysicalAssessmentForm(buildEmptyPhysicalAssessmentForm(null, null));
+    setPhysicalAssessmentSubmitting(false);
     setShowMealPlanHistoryModal(false);
     setShowProgressHistoryModal(false);
     setShowWeightEntryModal(false);
     setShowTargetRefreshModal(false);
-    setWeightEntryMode("initial");
-    setWeightEntryForm({ initialWeight: "", targetWeight: "", progressWeight: "" });
+    setWeightEntryForm({ progressWeight: "" });
     setTargetRefreshValue("");
     setPatientPhotos({});
     setLatestPatientConsultation(null);
@@ -1453,71 +1814,86 @@ export default function App() {
   }
 
   function openWeightEntryModal() {
-    const isFirstEntry = !hasWeightMeasurements;
-    setWeightEntryMode(isFirstEntry ? "initial" : "progress");
-    setWeightEntryForm({
-      initialWeight: isFirstEntry && progressCurrent !== null ? String(progressCurrent).replace(".", ",") : "",
-      targetWeight: progressTarget !== null ? String(progressTarget).replace(".", ",") : "",
-      progressWeight: "",
-    });
+    if (!canRegisterWeightProgress) {
+      setError("Registre uma avaliacao fisica antes de salvar a progressao.");
+      return;
+    }
+    setEditingWeightEntryId("");
+    setActiveProgressPointId("");
+    setWeightEntryForm({ progressWeight: "" });
+    setShowTargetRefreshModal(false);
+    setShowWeightEntryModal(true);
+  }
+
+  function openWeightEntryEditModal(weightEntryId) {
+    if (!selectedPatient?.id || !weightEntryId) return;
+    const entryId = String(weightEntryId).trim();
+    if (!entryId) return;
+    if (entryId.startsWith("assessment-")) {
+      setError("Pesagens originadas da avaliacao fisica devem ser editadas na propria avaliacao.");
+      return;
+    }
+    const selectedEntry = selectedPatientWeightHistory.find((entry) => entry.id === entryId);
+    if (!selectedEntry) {
+      setError("Progressao de pesagem nao encontrada.");
+      return;
+    }
+    setEditingWeightEntryId(entryId);
+    setActiveProgressPointId("");
+    setWeightEntryForm({ progressWeight: String(selectedEntry.weight).replace(".", ",") });
     setShowTargetRefreshModal(false);
     setShowWeightEntryModal(true);
   }
 
   function openTargetRefreshModal() {
+    setActiveProgressPointId("");
     setTargetRefreshValue("");
     setShowTargetRefreshModal(true);
   }
 
   function closeWeightEntryModal() {
+    setEditingWeightEntryId("");
     setShowWeightEntryModal(false);
   }
 
   async function handleWeightEntrySubmit(event) {
     event.preventDefault();
     if (!selectedPatient?.id) return;
+    if (!canRegisterWeightProgress) {
+      setError("Registre uma avaliacao fisica antes de salvar a progressao.");
+      return;
+    }
 
-    const isInitialEntry = weightEntryMode === "initial";
-    const weightInput = isInitialEntry ? weightEntryForm.initialWeight : weightEntryForm.progressWeight;
-    const parsedWeight = parseFoodNumber(weightInput);
+    const parsedWeight = parseFoodNumber(weightEntryForm.progressWeight);
     if (!Number.isFinite(parsedWeight) || parsedWeight <= 0) {
       setError("Informe um peso valido em kg.");
       return;
     }
 
-    let parsedTargetWeight = progressTarget;
-    if (isInitialEntry) {
-      parsedTargetWeight = parseFoodNumber(weightEntryForm.targetWeight);
-      if (!Number.isFinite(parsedTargetWeight) || parsedTargetWeight <= 0) {
-        setError("Informe uma meta de peso valida em kg.");
-        return;
-      }
-    }
-
     const roundedWeight = Number(parsedWeight.toFixed(2));
-    const roundedTargetWeight =
-      parsedTargetWeight !== null && Number.isFinite(parsedTargetWeight)
-        ? Number(parsedTargetWeight.toFixed(2))
-        : null;
     const nowIso = new Date().toISOString();
-    const nextHistory = [
-      ...selectedPatientWeightHistory,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        weight: roundedWeight,
-        recordedAt: nowIso,
-      },
-    ];
-    const nextTargetHistory = isInitialEntry && roundedTargetWeight !== null
-      ? [
-          ...selectedPatientTargetHistory,
+    const isEditingEntry = Boolean(editingWeightEntryId);
+    const nextHistory = isEditingEntry
+      ? selectedPatientWeightHistory.map((entry) =>
+          entry.id === editingWeightEntryId ? { ...entry, weight: roundedWeight } : entry,
+        )
+      : [
+          ...selectedPatientWeightHistory,
           {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            targetWeight: roundedTargetWeight,
-            setAt: nowIso,
+            weight: roundedWeight,
+            recordedAt: nowIso,
           },
-        ]
-      : selectedPatientTargetHistory;
+        ];
+    if (isEditingEntry && !selectedPatientWeightHistory.some((entry) => entry.id === editingWeightEntryId)) {
+      setError("Progressao de pesagem nao encontrada.");
+      return;
+    }
+    if (isEditingEntry && String(editingWeightEntryId).startsWith("assessment-")) {
+      setError("Pesagens originadas da avaliacao fisica devem ser editadas na propria avaliacao.");
+      return;
+    }
+    const nextCurrentWeight = nextHistory.length ? nextHistory[nextHistory.length - 1].weight : null;
     const baselineWeight =
       activeTargetCycleStartWeight !== null && activeTargetCycleStartWeight !== undefined
         ? activeTargetCycleStartWeight
@@ -1525,14 +1901,13 @@ export default function App() {
           ? selectedPatientWeightHistory[0].weight
           : roundedWeight;
     const wasTargetReached =
-      !isInitialEntry &&
       progressTarget !== null &&
       progressCurrent !== null &&
       hasReachedTargetValue(progressCurrent, progressTarget, baselineWeight);
     const isTargetReachedNow =
-      !isInitialEntry &&
       progressTarget !== null &&
-      hasReachedTargetValue(roundedWeight, progressTarget, baselineWeight);
+      nextCurrentWeight !== null &&
+      hasReachedTargetValue(nextCurrentWeight, progressTarget, baselineWeight);
 
     setError("");
     try {
@@ -1542,15 +1917,50 @@ export default function App() {
         goal: selectedPatient.goal || "",
         phone: selectedPatient.phone || "",
         email: selectedPatient.email || "",
-        currentWeight: roundedWeight,
+        currentWeight: nextCurrentWeight,
         weightHistory: nextHistory,
-        ...(isInitialEntry ? { targetWeight: roundedTargetWeight, targetHistory: nextTargetHistory } : {}),
       });
-      setShowWeightEntryModal(false);
+      closeWeightEntryModal();
       await loadData();
       if (isTargetReachedNow && !wasTargetReached) {
         openTargetRefreshModal();
       }
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
+  async function handleWeightEntryDelete(weightEntryId) {
+    if (!selectedPatient?.id || !weightEntryId) return;
+    const entryId = String(weightEntryId).trim();
+    if (!entryId) return;
+    if (entryId.startsWith("assessment-")) {
+      setError("Pesagens originadas da avaliacao fisica devem ser removidas na propria avaliacao.");
+      return;
+    }
+    const selectedEntry = selectedPatientWeightHistory.find((entry) => entry.id === entryId);
+    if (!selectedEntry) {
+      setError("Progressao de pesagem nao encontrada.");
+      return;
+    }
+    const confirmed = window.confirm("Deseja remover esta progressao de pesagem?");
+    if (!confirmed) return;
+
+    const nextHistory = selectedPatientWeightHistory.filter((entry) => entry.id !== entryId);
+    const nextCurrentWeight = nextHistory.length ? nextHistory[nextHistory.length - 1].weight : null;
+    setError("");
+    try {
+      await api.updatePatient(selectedPatient.id, {
+        name: selectedPatient.name,
+        age: selectedPatient.age ?? undefined,
+        goal: selectedPatient.goal || "",
+        phone: selectedPatient.phone || "",
+        email: selectedPatient.email || "",
+        currentWeight: nextCurrentWeight,
+        weightHistory: nextHistory,
+      });
+      setActiveProgressPointId("");
+      await loadData();
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -1617,6 +2027,228 @@ export default function App() {
       setShowWeightEntryModal(false);
       setShowProgressHistoryModal(false);
       setShowTargetRefreshModal(false);
+      await loadData();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
+
+  function mapPhysicalAssessmentToForm(assessment) {
+    const base = buildEmptyPhysicalAssessmentForm(selectedPatient, latestPhysicalAssessment);
+    if (!assessment) return base;
+
+    const nextCircumferences = { ...base.circumferences };
+    (assessment.circumferences || []).forEach((entry) => {
+      if (!entry?.type || !Object.prototype.hasOwnProperty.call(nextCircumferences, entry.type)) return;
+      nextCircumferences[entry.type] = String(entry.valueCm ?? "").replace(".", ",");
+    });
+    const nextSkinfolds = { ...base.skinfolds };
+    (assessment.skinfolds || []).forEach((entry) => {
+      if (!entry?.site || !Object.prototype.hasOwnProperty.call(nextSkinfolds, entry.site)) return;
+      nextSkinfolds[entry.site] = String(entry.valueMm ?? "").replace(".", ",");
+    });
+
+    const assessmentDate = String(assessment.date || formatDateKey(new Date())).slice(0, 10);
+    return {
+      date: isoToBrDate(assessmentDate) || base.date,
+      weightKg: String(assessment.weightKg ?? "").replace(".", ","),
+      heightCm: String(assessment.heightCm ?? "").replace(".", ","),
+      age: String(assessment.age ?? ""),
+      sex: assessment.sex || "",
+      activityLevel: assessment.activityLevel || "moderado",
+      notes: assessment.notes || "",
+      circumferences: nextCircumferences,
+      skinfolds: nextSkinfolds,
+    };
+  }
+
+  function buildPhysicalAssessmentPayload(form, patientId) {
+    const dateInput = String(form.date || "").trim();
+    const date = parseBrDate(dateInput);
+    if (!date) {
+      return { error: "Data da avaliação inválida. Use o formato dd/mm/aaaa." };
+    }
+
+    const weightKg = parseFoodNumber(form.weightKg);
+    if (!Number.isFinite(weightKg) || weightKg <= 0) {
+      return { error: "Peso (kg) inválido." };
+    }
+    const heightCm = parseFoodNumber(form.heightCm);
+    if (!Number.isFinite(heightCm) || heightCm <= 0) {
+      return { error: "Altura (cm) inválida." };
+    }
+
+    const age = Number(form.age);
+    if (!Number.isInteger(age) || age <= 0) {
+      return { error: "Idade inválida." };
+    }
+    if (!["masculino", "feminino"].includes(form.sex)) {
+      return { error: "Selecione o sexo biológico." };
+    }
+    if (!PHYSICAL_ACTIVITY_LEVELS.some((item) => item.value === form.activityLevel)) {
+      return { error: "Selecione um nível de atividade válido." };
+    }
+
+    const circumferences = [];
+    for (const field of CIRCUMFERENCE_FIELDS) {
+      const rawValue = String(form.circumferences?.[field.key] || "").trim();
+      if (!rawValue) continue;
+      const parsed = parseFoodNumber(rawValue);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { error: `Circunferência inválida em ${field.label}.` };
+      }
+      circumferences.push({ type: field.key, valueCm: Number(parsed.toFixed(2)) });
+    }
+
+    const skinfolds = [];
+    for (const field of SKINFOLD_FIELDS) {
+      const rawValue = String(form.skinfolds?.[field.key] || "").trim();
+      if (!rawValue) continue;
+      const parsed = parseFoodNumber(rawValue);
+      if (!Number.isFinite(parsed) || parsed < 2 || parsed > 60) {
+        return { error: `Dobra cutânea em ${field.label} deve estar entre 2 e 60 mm.` };
+      }
+      skinfolds.push({ site: field.key, valueMm: Number(parsed.toFixed(2)) });
+    }
+
+    return {
+      payload: {
+        patientId,
+        date,
+        weightKg: Number(weightKg.toFixed(2)),
+        heightCm: Number(heightCm.toFixed(2)),
+        age,
+        sex: form.sex,
+        activityLevel: form.activityLevel,
+        notes: String(form.notes || "").trim(),
+        circumferences,
+        skinfolds,
+      },
+    };
+  }
+
+  function changePhysicalAssessmentField(field, value) {
+    setPhysicalAssessmentForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function changePhysicalAssessmentCircumference(type, value) {
+    setPhysicalAssessmentForm((prev) => ({
+      ...prev,
+      circumferences: {
+        ...(prev.circumferences || {}),
+        [type]: value,
+      },
+    }));
+  }
+
+  function changePhysicalAssessmentSkinfold(site, value) {
+    setPhysicalAssessmentForm((prev) => ({
+      ...prev,
+      skinfolds: {
+        ...(prev.skinfolds || {}),
+        [site]: value,
+      },
+    }));
+  }
+
+  function openPhysicalAssessmentModule() {
+    if (!routePatientId) return;
+    setPhysicalAssessmentSubmitting(false);
+    setShowPhysicalAssessmentModal(true);
+    setShowPhysicalAssessmentFormModal(false);
+    setPhysicalAssessmentFormTab("basicos");
+    setEditingPhysicalAssessmentId("");
+    setPhysicalAssessmentFormMode("create");
+    setPhysicalAssessmentForm(buildEmptyPhysicalAssessmentForm(selectedPatient, latestPhysicalAssessment));
+  }
+
+  function closePhysicalAssessmentModule() {
+    setPhysicalAssessmentSubmitting(false);
+    setShowPhysicalAssessmentModal(false);
+    setShowPhysicalAssessmentFormModal(false);
+    setPhysicalAssessmentFormMode("create");
+    setPhysicalAssessmentFormTab("basicos");
+    setEditingPhysicalAssessmentId("");
+    setPhysicalAssessmentForm(buildEmptyPhysicalAssessmentForm(selectedPatient, latestPhysicalAssessment));
+  }
+
+  function openPhysicalAssessmentCreateForm() {
+    setPhysicalAssessmentSubmitting(false);
+    setPhysicalAssessmentFormMode("create");
+    setEditingPhysicalAssessmentId("");
+    setPhysicalAssessmentFormTab("basicos");
+    setPhysicalAssessmentForm(buildEmptyPhysicalAssessmentForm(selectedPatient, latestPhysicalAssessment));
+    setShowPhysicalAssessmentFormModal(true);
+  }
+
+  async function openPhysicalAssessmentFormMode(assessmentId, mode) {
+    if (!assessmentId) return;
+    setError("");
+    setPhysicalAssessmentSubmitting(true);
+    try {
+      const assessment = await api.getPhysicalAssessment(assessmentId);
+      setPhysicalAssessmentFormMode(mode);
+      setEditingPhysicalAssessmentId(assessment.id);
+      setPhysicalAssessmentFormTab("basicos");
+      setPhysicalAssessmentForm(mapPhysicalAssessmentToForm(assessment));
+      setShowPhysicalAssessmentFormModal(true);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setPhysicalAssessmentSubmitting(false);
+    }
+  }
+
+  function closePhysicalAssessmentForm() {
+    setPhysicalAssessmentSubmitting(false);
+    setShowPhysicalAssessmentFormModal(false);
+    setPhysicalAssessmentFormMode("create");
+    setPhysicalAssessmentFormTab("basicos");
+    setEditingPhysicalAssessmentId("");
+    setPhysicalAssessmentForm(buildEmptyPhysicalAssessmentForm(selectedPatient, latestPhysicalAssessment));
+  }
+
+  async function handlePhysicalAssessmentSubmit(event) {
+    event.preventDefault();
+    if (!selectedPatient?.id || isPhysicalAssessmentReadOnly) return;
+
+    const { payload, error: payloadError } = buildPhysicalAssessmentPayload(
+      physicalAssessmentForm,
+      selectedPatient.id,
+    );
+    if (payloadError) {
+      setError(payloadError);
+      return;
+    }
+
+    setError("");
+    setPhysicalAssessmentSubmitting(true);
+    try {
+      if (physicalAssessmentFormMode === "edit" && editingPhysicalAssessmentId) {
+        await api.updatePhysicalAssessment(editingPhysicalAssessmentId, payload);
+      } else {
+        await api.createPhysicalAssessment(payload);
+      }
+      await loadData();
+      closePhysicalAssessmentForm();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setPhysicalAssessmentSubmitting(false);
+    }
+  }
+
+  async function removePhysicalAssessment(assessmentId) {
+    if (!assessmentId) return;
+    const confirmed = window.confirm("Deseja realmente excluir esta avaliação física?");
+    if (!confirmed) return;
+
+    setError("");
+    try {
+      await api.deletePhysicalAssessment(assessmentId);
+      if (editingPhysicalAssessmentId === assessmentId) {
+        closePhysicalAssessmentForm();
+      }
       await loadData();
     } catch (requestError) {
       setError(requestError.message);
@@ -1698,6 +2330,21 @@ export default function App() {
         delete next[id];
         return next;
       });
+      setPatientMealPlanGroupCollapsed((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setPatientMealPlanItemEditMode((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setPatientMealPlanSubstitutionItemEditMode((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setPatientMealPlanSubstitutions((prev) => {
         const next = { ...prev };
         delete next[id];
@@ -1718,12 +2365,19 @@ export default function App() {
         delete next[id];
         return next;
       });
+      setPatientPhysicalAssessments((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setPatientPhotos((prev) => {
         const next = { ...prev };
         delete next[id];
         return next;
       });
       if (id === routePatientId) {
+        setShowPhysicalAssessmentModal(false);
+        setShowPhysicalAssessmentFormModal(false);
         setShowMealPlanHistoryModal(false);
         navigate("/patients", { replace: true });
       }
@@ -1739,6 +2393,8 @@ export default function App() {
   }
 
   function closePatientProfile() {
+    setShowPhysicalAssessmentModal(false);
+    setShowPhysicalAssessmentFormModal(false);
     setShowMealPlanHistoryModal(false);
     setShowProgressHistoryModal(false);
     setShowWeightEntryModal(false);
@@ -1752,6 +2408,33 @@ export default function App() {
       ...prev,
       [routePatientId]: typeof forceValue === "boolean" ? forceValue : !prev[routePatientId],
     }));
+  }
+
+  function setMealPlanItemEditMode(itemId, isEditing) {
+    if (!routePatientId || !itemId) return;
+    setPatientMealPlanItemEditMode((prev) => {
+      const current = { ...(prev[routePatientId] || {}) };
+      if (isEditing) current[itemId] = true;
+      else delete current[itemId];
+      return {
+        ...prev,
+        [routePatientId]: current,
+      };
+    });
+  }
+
+  function setMealPlanSubstitutionItemEditMode(groupName, substitutionId, itemId, isEditing) {
+    if (!routePatientId || !groupName || !substitutionId || !itemId) return;
+    const key = mealPlanSubstitutionItemEditKey(groupName, substitutionId, itemId);
+    setPatientMealPlanSubstitutionItemEditMode((prev) => {
+      const current = { ...(prev[routePatientId] || {}) };
+      if (isEditing) current[key] = true;
+      else delete current[key];
+      return {
+        ...prev,
+        [routePatientId]: current,
+      };
+    });
   }
 
   function addMealPlanGroup(rawName) {
@@ -1771,6 +2454,9 @@ export default function App() {
 
   function removeMealPlanGroup(groupName) {
     if (!routePatientId || !groupName) return;
+    const removedItemIds = (patientMealPlans[routePatientId] || [])
+      .filter((item) => (item.mealOccasion || DEFAULT_MEAL_OCCASION) === groupName)
+      .map((item) => item.id);
     const hasItems = (patientMealPlans[routePatientId] || []).some(
       (item) => (item.mealOccasion || DEFAULT_MEAL_OCCASION) === groupName,
     );
@@ -1792,6 +2478,16 @@ export default function App() {
           (item) => (item.mealOccasion || DEFAULT_MEAL_OCCASION) !== groupName,
         ),
       }));
+      setPatientMealPlanItemEditMode((prev) => {
+        const current = { ...(prev[routePatientId] || {}) };
+        removedItemIds.forEach((itemId) => {
+          delete current[itemId];
+        });
+        return {
+          ...prev,
+          [routePatientId]: current,
+        };
+      });
     }
     if (hasSubstitutions) {
       setPatientMealPlanSubstitutions((prev) => {
@@ -1811,6 +2507,36 @@ export default function App() {
         [routePatientId]: current,
       };
     });
+    setPatientMealPlanGroupCollapsed((prev) => {
+      const current = { ...(prev[routePatientId] || {}) };
+      delete current[groupName];
+      return {
+        ...prev,
+        [routePatientId]: current,
+      };
+    });
+    setPatientMealPlanSubstitutionItemEditMode((prev) => {
+      const current = { ...(prev[routePatientId] || {}) };
+      const groupPrefix = `${groupName}::`;
+      Object.keys(current).forEach((key) => {
+        if (key.startsWith(groupPrefix)) delete current[key];
+      });
+      return {
+        ...prev,
+        [routePatientId]: current,
+      };
+    });
+  }
+
+  function toggleMealPlanGroupCollapsed(groupName) {
+    if (!routePatientId || !groupName) return;
+    setPatientMealPlanGroupCollapsed((prev) => ({
+      ...prev,
+      [routePatientId]: {
+        ...(prev[routePatientId] || {}),
+        [groupName]: !(prev[routePatientId] || {})[groupName],
+      },
+    }));
   }
 
   function toggleMealPlanSubstitutionPanel(groupName) {
@@ -1882,6 +2608,17 @@ export default function App() {
         },
       };
     });
+    setPatientMealPlanSubstitutionItemEditMode((prev) => {
+      const current = { ...(prev[routePatientId] || {}) };
+      const substitutionPrefix = `${groupName}::${substitutionId}::`;
+      Object.keys(current).forEach((key) => {
+        if (key.startsWith(substitutionPrefix)) delete current[key];
+      });
+      return {
+        ...prev,
+        [routePatientId]: current,
+      };
+    });
   }
 
   function changeMealPlanSubstitutionLabel(groupName, substitutionId, value) {
@@ -1893,19 +2630,17 @@ export default function App() {
 
   function addMealPlanSubstitutionItem(groupName, substitutionId) {
     if (!routePatientId || !groupName || !substitutionId) return;
-    const defaultFood = foods[0];
-    const basis = defaultFood?.measurementBasis || "100g";
-    const defaultPortion = basis === "unidade" ? 1 : 100;
     const nextItem = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      foodId: defaultFood?.id || "",
-      portion: defaultPortion,
-      foodSearch: defaultFood?.name || "",
+      foodId: "",
+      portion: "",
+      foodSearch: "",
     };
     updateMealPlanSubstitution(groupName, substitutionId, (substitution) => ({
       ...substitution,
       items: [...(substitution.items || []), nextItem],
     }));
+    setMealPlanSubstitutionItemEditMode(groupName, substitutionId, nextItem.id, true);
   }
 
   function updateMealPlanSubstitutionItem(groupName, substitutionId, itemId, updater) {
@@ -1955,15 +2690,11 @@ export default function App() {
       ...substitution,
       items: (substitution.items || []).filter((item) => item.id !== itemId),
     }));
+    setMealPlanSubstitutionItemEditMode(groupName, substitutionId, itemId, false);
   }
 
   function openMealPlanEditor() {
     if (!routePatientId) return;
-    const hasItems = (patientMealPlans[routePatientId] || []).length > 0;
-    const hasGroups = (patientMealPlanGroups[routePatientId] || []).length > 0;
-    if (!hasItems && !hasGroups) {
-      addMealPlanGroup(DEFAULT_MEAL_OCCASION);
-    }
     toggleMealPlanEditor(true);
   }
 
@@ -1971,20 +2702,18 @@ export default function App() {
     if (!routePatientId) return;
     const nextGroup = String(groupName || DEFAULT_MEAL_OCCASION).trim() || DEFAULT_MEAL_OCCASION;
     addMealPlanGroup(nextGroup);
-    const defaultFood = foods[0];
-    const basis = defaultFood?.measurementBasis || "100g";
-    const defaultPortion = basis === "unidade" ? 1 : 100;
     const item = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      foodId: defaultFood?.id || "",
-      portion: defaultPortion,
+      foodId: "",
+      portion: "",
       mealOccasion: nextGroup,
-      foodSearch: defaultFood?.name || "",
+      foodSearch: "",
     };
     setPatientMealPlans((prev) => ({
       ...prev,
       [routePatientId]: [...(prev[routePatientId] || []), item],
     }));
+    setMealPlanItemEditMode(item.id, true);
   }
 
   function updateMealPlanItem(itemId, updater) {
@@ -2034,6 +2763,7 @@ export default function App() {
       ...prev,
       [routePatientId]: (prev[routePatientId] || []).filter((item) => item.id !== itemId),
     }));
+    setMealPlanItemEditMode(itemId, false);
   }
 
   async function saveMealPlan() {
@@ -2188,7 +2918,7 @@ export default function App() {
                           <thead>
                             <tr>
                               <th>Alimento</th>
-                              <th>Porcao</th>
+                              <th>Porção</th>
                               <th>Kcal</th>
                               <th>P</th>
                               <th>C</th>
@@ -2219,7 +2949,7 @@ export default function App() {
               <thead>
                 <tr>
                   <th>Alimento</th>
-                  <th>Porcao</th>
+                  <th>Porção</th>
                   <th>Kcal</th>
                   <th>P</th>
                   <th>C</th>
@@ -2757,65 +3487,6 @@ export default function App() {
                       </div>
                     </section>
 
-                    <section className="patient-profile-panel patient-overview-card patient-metrics-card">
-                      <div className="patient-overview-head">
-                        <span className="patient-overview-icon">
-                          <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M4 16l5-5 4 4 7-8" />
-                            <path d="M20 7v5h-5" />
-                          </svg>
-                        </span>
-                        <div>
-                          <h5>Evolucao</h5>
-                          <p>acompanhamento</p>
-                        </div>
-                      </div>
-                      <div className="patient-metrics-values">
-                        <div>
-                          <span>Pesagem inicial</span>
-                          <strong>{progressStart !== null ? `${formatDecimal(progressStart)} kg` : "--"}</strong>
-                        </div>
-                        <div>
-                          <span>Variacao</span>
-                          <strong>
-                            {progressDelta !== null
-                              ? `${progressDelta > 0 ? "+" : ""}${formatDecimal(progressDelta)} kg`
-                              : "--"}
-                          </strong>
-                        </div>
-                        <div>
-                          <span>Meta</span>
-                          <strong>
-                            {progressTarget !== null ? `${formatDecimal(progressTarget)} kg` : "--"}
-                          </strong>
-                        </div>
-                      </div>
-                      {shouldShowTargetRefreshAlert && (
-                        <div className="patient-metrics-alert">
-                          <span>Meta atual atingida. Defina uma nova meta.</span>
-                          <button type="button" className="patient-action-btn ghost" onClick={openTargetRefreshModal}>
-                            Definir meta
-                          </button>
-                        </div>
-                      )}
-                      <div className="patient-overview-actions patient-overview-actions-end">
-                        <div className="patient-metrics-actions">
-                          <button type="button" className="patient-action-btn" onClick={openWeightEntryModal}>
-                            {!hasWeightMeasurements ? "Registrar primeira pesagem" : "Registrar progressao de pesagem"}
-                          </button>
-                          {hasEvolutionData && (
-                            <button
-                              type="button"
-                              className="patient-action-btn subtle-danger"
-                              onClick={clearPatientEvolutionData}
-                            >
-                              Remover dados
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </section>
-
                     <section className="patient-profile-panel patient-overview-card patient-photos-card">
                       <div className="patient-overview-head">
                         <span className="patient-overview-icon">
@@ -2845,6 +3516,37 @@ export default function App() {
                           : "Nenhuma foto adicionada no momento."}
                       </p>
                     </section>
+
+                    <section className="patient-profile-panel patient-overview-card patient-bio-side-card">
+                      <div className="patient-overview-head">
+                        <span className="patient-overview-icon">
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 3v18" />
+                            <path d="M7 7h10" />
+                            <path d="M8 12h8" />
+                            <path d="M9 17h6" />
+                          </svg>
+                        </span>
+                        <div>
+                          <h5>Avaliação Física</h5>
+                          <p>antropometria e cálculo energético</p>
+                        </div>
+                      </div>
+                      <div className="patient-physical-side-stats">
+                        <span>
+                          Avaliações: <strong>{selectedPatientPhysicalAssessments.length}</strong>
+                        </span>
+                        <span>
+                          Última: <strong>{latestPhysicalAssessment ? formatDateOnly(latestPhysicalAssessment.date) : "--"}</strong>
+                        </span>
+                        <span>
+                          TDEE: <strong>{latestPhysicalAssessment ? `${formatDecimal(latestPhysicalAssessment.tdee)} kcal` : "--"}</strong>
+                        </span>
+                      </div>
+                      <button type="button" className="patient-action-btn" onClick={openPhysicalAssessmentModule}>
+                        Abrir módulo
+                      </button>
+                    </section>
                   </div>
 
                   {isMealPlanExpanded && (
@@ -2857,7 +3559,7 @@ export default function App() {
                           <div>
                             <h5>Editor de plano alimentar</h5>
                             <p className="patient-panel-hint">
-                              Vincule os alimentos cadastrados e ajuste suas respectivas porcoes.
+                              Vincule os alimentos cadastrados e ajuste suas respectivas porções.
                             </p>
                           </div>
                           <button type="button" className="patient-action-btn ghost" onClick={() => toggleMealPlanEditor(false)}>
@@ -2941,6 +3643,7 @@ export default function App() {
                             const isSubstitutionPanelOpen = Boolean(
                               selectedMealPlanSubstitutionExpandedMap[groupName],
                             );
+                            const isGroupCollapsed = Boolean(selectedMealPlanGroupCollapsedMap[groupName]);
                             const groupTotals = groupItems.reduce(
                               (acc, item) => {
                                 const itemTotals = calculateMealPlanItemTotals(item, foods);
@@ -2952,14 +3655,29 @@ export default function App() {
                               { protein: 0, carbs: 0, fat: 0 },
                             );
                             return (
-                              <article className="patient-meal-group" key={groupName}>
+                              <article className={`patient-meal-group ${isGroupCollapsed ? "collapsed" : ""}`} key={groupName}>
                                 <header className="patient-meal-group-head">
-                                  <div className="patient-meal-group-title-wrap">
+                                  <div
+                                    className="patient-meal-group-title-wrap patient-meal-group-title-toggle"
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-expanded={!isGroupCollapsed}
+                                    aria-label={`${isGroupCollapsed ? "Expandir" : "Minimizar"} grupo ${groupName}`}
+                                    onClick={() => toggleMealPlanGroupCollapsed(groupName)}
+                                    onKeyDown={(event) => {
+                                      if (event.key !== "Enter" && event.key !== " ") return;
+                                      event.preventDefault();
+                                      toggleMealPlanGroupCollapsed(groupName);
+                                    }}
+                                  >
                                     <div className="patient-meal-group-title-line">
                                       <button
                                         type="button"
                                         className={`patient-substitution-arrow ${isSubstitutionPanelOpen ? "open" : ""}`}
-                                        onClick={() => toggleMealPlanSubstitutionPanel(groupName)}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          toggleMealPlanSubstitutionPanel(groupName);
+                                        }}
                                         aria-label={`Substituicoes de ${groupName}`}
                                         title="Abrir substituicoes"
                                       >
@@ -2979,6 +3697,13 @@ export default function App() {
                                     <button
                                       type="button"
                                       className="patient-action-btn ghost"
+                                      onClick={() => toggleMealPlanGroupCollapsed(groupName)}
+                                    >
+                                      {isGroupCollapsed ? "Expandir grupo" : "Minimizar grupo"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="patient-action-btn ghost"
                                       onClick={() => addMealPlanItem(groupName)}
                                       disabled={!foods.length}
                                     >
@@ -2993,206 +3718,337 @@ export default function App() {
                                     </button>
                                   </div>
                                 </header>
-                                {groupItems.length === 0 && (
-                                  <p className="patient-meal-empty">
-                                    Este grupo ainda nao possui alimentos vinculados.
-                                  </p>
-                                )}
-                                {groupItems.map((item) => {
-                                  const itemTotals = calculateMealPlanItemTotals(item, foods);
-                                  const linkedFood = itemTotals.linkedFood;
-                                  const unit = itemTotals.unit;
-                                  const foodSearchValue = item.foodSearch ?? linkedFood?.name ?? "";
-                                  return (
-                                    <div key={item.id} className="patient-meal-item-card">
-                                      <div className="patient-meal-row">
-                                        <div className="patient-food-autocomplete">
-                                          <input
-                                            type="text"
-                                            list={`meal-plan-food-options-${item.id}`}
-                                            value={foodSearchValue}
-                                            onChange={(event) => changeMealPlanFoodSearch(item.id, event.target.value)}
-                                            placeholder="Digite para buscar alimento..."
-                                          />
-                                          <datalist id={`meal-plan-food-options-${item.id}`}>
-                                            {foods.map((food) => (
-                                              <option
-                                                key={food.id}
-                                                value={food.name}
-                                                label={`${food.name} (${measurementBasisLabel(food.measurementBasis)})`}
-                                              />
-                                            ))}
-                                          </datalist>
-                                        </div>
-                                        <div className="patient-meal-portion-field">
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            step={unit === "unidade" ? "1" : "0.01"}
-                                            value={item.portion}
-                                            onChange={(event) => changeMealPlanPortion(item.id, event.target.value)}
-                                            placeholder="Porcao"
-                                          />
-                                          <span>{unit}</span>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          className="danger"
-                                          onClick={() => removeMealPlanItem(item.id)}
-                                        >
-                                          Remover
-                                        </button>
-                                      </div>
-                                      <div className="patient-meal-row-meta">
-                                        <strong>{linkedFood?.name || "Alimento nao selecionado"}</strong>
-                                        <div className="patient-item-nutrients">
-                                          <span>{formatDecimal(itemTotals.calories)} kcal</span>
-                                          <span>P {formatDecimal(itemTotals.protein)}g</span>
-                                          <span>C {formatDecimal(itemTotals.carbs)}g</span>
-                                          <span>G {formatDecimal(itemTotals.fat)}g</span>
-                                          <span>F {formatDecimal(itemTotals.fiber)}g</span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-
-                                {isSubstitutionPanelOpen && (
-                                  <section className="patient-substitutions-panel">
-                                    <div className="patient-substitutions-head">
-                                      <strong>Substituicoes do grupo</strong>
-                                      <button
-                                        type="button"
-                                        className="patient-action-btn ghost"
-                                        onClick={() => addMealPlanSubstitution(groupName)}
-                                      >
-                                        Nova substituicao
-                                      </button>
-                                    </div>
-
-                                    {substitutionsForGroup.length === 0 && (
-                                      <p className="patient-meal-empty">
-                                        Nenhuma substituicao cadastrada para este grupo.
-                                      </p>
-                                    )}
-
-                                    {substitutionsForGroup.map((substitution) => (
-                                      <article key={substitution.id} className="patient-substitution-card">
-                                        <header className="patient-substitution-head">
-                                          <input
-                                            value={substitution.label || ""}
-                                            onChange={(event) =>
-                                              changeMealPlanSubstitutionLabel(
-                                                groupName,
-                                                substitution.id,
-                                                event.target.value,
-                                              )
-                                            }
-                                            placeholder="Nome da substituicao"
-                                          />
-                                          <button
-                                            type="button"
-                                            className="danger"
-                                            onClick={() => removeMealPlanSubstitution(groupName, substitution.id)}
-                                          >
-                                            Remover substituicao
-                                          </button>
-                                        </header>
-
-                                        {(substitution.items || []).length === 0 && (
-                                          <p className="patient-meal-empty">
-                                            Nenhum alimento nesta substituicao.
-                                          </p>
-                                        )}
-
-                                        {(substitution.items || []).map((item) => {
-                                          const itemTotals = calculateMealPlanItemTotals(item, foods);
-                                          const linkedFood = itemTotals.linkedFood;
-                                          const unit = itemTotals.unit;
-                                          const foodSearchValue = item.foodSearch ?? linkedFood?.name ?? "";
-                                          return (
-                                            <div key={item.id} className="patient-meal-item-card patient-substitution-item-card">
-                                              <div className="patient-meal-row">
-                                                <div className="patient-food-autocomplete">
-                                                  <input
-                                                    type="text"
-                                                    list={`meal-plan-substitution-food-options-${substitution.id}-${item.id}`}
-                                                    value={foodSearchValue}
-                                                    onChange={(event) =>
-                                                      changeMealPlanSubstitutionFoodSearch(
-                                                        groupName,
-                                                        substitution.id,
-                                                        item.id,
-                                                        event.target.value,
-                                                      )
-                                                    }
-                                                    placeholder="Digite para buscar alimento..."
-                                                  />
-                                                  <datalist id={`meal-plan-substitution-food-options-${substitution.id}-${item.id}`}>
-                                                    {foods.map((food) => (
-                                                      <option
-                                                        key={food.id}
-                                                        value={food.name}
-                                                        label={`${food.name} (${measurementBasisLabel(food.measurementBasis)})`}
-                                                      />
-                                                    ))}
-                                                  </datalist>
-                                                </div>
-                                                <div className="patient-meal-portion-field">
-                                                  <input
-                                                    type="number"
-                                                    min="0"
-                                                    step={unit === "unidade" ? "1" : "0.01"}
-                                                    value={item.portion}
-                                                    onChange={(event) =>
-                                                      changeMealPlanSubstitutionPortion(
-                                                        groupName,
-                                                        substitution.id,
-                                                        item.id,
-                                                        event.target.value,
-                                                      )
-                                                    }
-                                                    placeholder="Porcao"
-                                                  />
-                                                  <span>{unit}</span>
-                                                </div>
+                                {!isGroupCollapsed && (
+                                  <>
+                                    {groupItems.map((item) => {
+                                      const itemTotals = calculateMealPlanItemTotals(item, foods);
+                                      const linkedFood = itemTotals.linkedFood;
+                                      const unit = itemTotals.unit;
+                                      const foodSearchValue = item.foodSearch ?? linkedFood?.name ?? "";
+                                      const isItemEditing =
+                                        Boolean(selectedMealPlanItemEditModeMap[item.id]) || !isMealPlanItemReady(item);
+                                      return (
+                                        <div key={item.id} className="patient-meal-item-card">
+                                          {!isItemEditing && (
+                                            <div className="patient-meal-item-card-actions">
+                                              <button
+                                                type="button"
+                                                className="patient-item-icon-btn"
+                                                onClick={() => setMealPlanItemEditMode(item.id, true)}
+                                                aria-label="Editar alimento"
+                                                title="Editar alimento"
+                                              >
+                                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                  <path d="M12 20h9" />
+                                                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                </svg>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="patient-item-icon-btn danger-icon"
+                                                onClick={() => removeMealPlanItem(item.id)}
+                                                aria-label="Remover alimento"
+                                                title="Remover alimento"
+                                              >
+                                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                  <path d="M3 6h18" />
+                                                  <path d="M8 6V4h8v2" />
+                                                  <path d="M19 6l-1 14H6L5 6" />
+                                                  <path d="M10 11v6" />
+                                                  <path d="M14 11v6" />
+                                                </svg>
+                                              </button>
+                                            </div>
+                                          )}
+                                          {isItemEditing ? (
+                                            <div className="patient-meal-row">
+                                              <div className="patient-food-autocomplete">
+                                                <input
+                                                  type="text"
+                                                  list={`meal-plan-food-options-${item.id}`}
+                                                  value={foodSearchValue}
+                                                  onChange={(event) => changeMealPlanFoodSearch(item.id, event.target.value)}
+                                                  placeholder="Digite para buscar alimento..."
+                                                />
+                                                <datalist id={`meal-plan-food-options-${item.id}`}>
+                                                  {foods.map((food) => (
+                                                    <option
+                                                      key={food.id}
+                                                      value={food.name}
+                                                      label={`${food.name} (${measurementBasisLabel(food.measurementBasis)})`}
+                                                    />
+                                                  ))}
+                                                </datalist>
+                                              </div>
+                                              <div className="patient-meal-portion-field">
+                                                <input
+                                                  type="number"
+                                                  min="0"
+                                                  step={unit === "unidade" ? "1" : "0.01"}
+                                                  value={item.portion}
+                                                  onChange={(event) => changeMealPlanPortion(item.id, event.target.value)}
+                                                  placeholder="Porção"
+                                                />
+                                                <span>{unit}</span>
+                                              </div>
+                                              <div className="patient-meal-row-actions">
+                                                <button
+                                                  type="button"
+                                                  className="patient-action-btn ghost"
+                                                  onClick={() => setMealPlanItemEditMode(item.id, false)}
+                                                  disabled={!isMealPlanItemReady(item)}
+                                                >
+                                                  Confirmar
+                                                </button>
                                                 <button
                                                   type="button"
                                                   className="danger"
-                                                  onClick={() =>
-                                                    removeMealPlanSubstitutionItem(groupName, substitution.id, item.id)
-                                                  }
+                                                  onClick={() => removeMealPlanItem(item.id)}
                                                 >
                                                   Remover
                                                 </button>
                                               </div>
-                                              <div className="patient-meal-row-meta">
-                                                <strong>{linkedFood?.name || "Alimento nao selecionado"}</strong>
-                                                <div className="patient-item-nutrients">
-                                                  <span>{formatDecimal(itemTotals.calories)} kcal</span>
-                                                  <span>P {formatDecimal(itemTotals.protein)}g</span>
-                                                  <span>C {formatDecimal(itemTotals.carbs)}g</span>
-                                                  <span>G {formatDecimal(itemTotals.fat)}g</span>
-                                                  <span>F {formatDecimal(itemTotals.fiber)}g</span>
-                                                </div>
-                                              </div>
                                             </div>
-                                          );
-                                        })}
+                                          ) : (
+                                            <div className="patient-meal-item-display">
+                                              <strong>{linkedFood?.name || "Alimento não selecionado"}</strong>
+                                              <span>{`${formatDecimal(itemTotals.portion)} ${unit}`}</span>
+                                            </div>
+                                          )}
+                                          <div className="patient-meal-row-meta">
+                                            {isItemEditing && (
+                                              <strong>{linkedFood?.name || "Alimento nao selecionado"}</strong>
+                                            )}
+                                            <div className="patient-item-nutrients">
+                                              <span>{formatDecimal(itemTotals.calories)} kcal</span>
+                                              <span>P {formatDecimal(itemTotals.protein)}g</span>
+                                              <span>C {formatDecimal(itemTotals.carbs)}g</span>
+                                              <span>G {formatDecimal(itemTotals.fat)}g</span>
+                                              <span>F {formatDecimal(itemTotals.fiber)}g</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
 
-                                        <div className="patient-substitution-actions">
+                                    {isSubstitutionPanelOpen && (
+                                      <section className="patient-substitutions-panel">
+                                        <div className="patient-substitutions-head">
+                                          <strong>Substituicoes do grupo</strong>
                                           <button
                                             type="button"
                                             className="patient-action-btn ghost"
-                                            onClick={() => addMealPlanSubstitutionItem(groupName, substitution.id)}
-                                            disabled={!foods.length}
+                                            onClick={() => addMealPlanSubstitution(groupName)}
                                           >
-                                            Adicionar alimento na substituicao
+                                            Nova substituicao
                                           </button>
                                         </div>
-                                      </article>
-                                    ))}
-                                  </section>
+
+                                        {substitutionsForGroup.length === 0 && (
+                                          <p className="patient-meal-empty">
+                                            Nenhuma substituicao cadastrada para este grupo.
+                                          </p>
+                                        )}
+
+                                        {substitutionsForGroup.map((substitution) => (
+                                          <article key={substitution.id} className="patient-substitution-card">
+                                            <header className="patient-substitution-head">
+                                              <input
+                                                value={substitution.label || ""}
+                                                onChange={(event) =>
+                                                  changeMealPlanSubstitutionLabel(
+                                                    groupName,
+                                                    substitution.id,
+                                                    event.target.value,
+                                                  )
+                                                }
+                                                placeholder="Nome da substituicao"
+                                              />
+                                              <button
+                                                type="button"
+                                                className="danger"
+                                                onClick={() => removeMealPlanSubstitution(groupName, substitution.id)}
+                                              >
+                                                Remover substituicao
+                                              </button>
+                                            </header>
+
+                                            {(substitution.items || []).length === 0 && (
+                                              <p className="patient-meal-empty">
+                                                Nenhum alimento nesta substituicao.
+                                              </p>
+                                            )}
+
+                                            {(substitution.items || []).map((item) => {
+                                              const itemTotals = calculateMealPlanItemTotals(item, foods);
+                                              const linkedFood = itemTotals.linkedFood;
+                                              const unit = itemTotals.unit;
+                                              const foodSearchValue = item.foodSearch ?? linkedFood?.name ?? "";
+                                              const substitutionItemEditKey = mealPlanSubstitutionItemEditKey(
+                                                groupName,
+                                                substitution.id,
+                                                item.id,
+                                              );
+                                              const isSubstitutionItemEditing =
+                                                Boolean(
+                                                  selectedMealPlanSubstitutionItemEditModeMap[substitutionItemEditKey],
+                                                ) || !isMealPlanItemReady(item);
+                                              return (
+                                                <div
+                                                  key={item.id}
+                                                  className="patient-meal-item-card patient-substitution-item-card"
+                                                >
+                                                  {!isSubstitutionItemEditing && (
+                                                    <div className="patient-meal-item-card-actions">
+                                                      <button
+                                                        type="button"
+                                                        className="patient-item-icon-btn"
+                                                        onClick={() =>
+                                                          setMealPlanSubstitutionItemEditMode(
+                                                            groupName,
+                                                            substitution.id,
+                                                            item.id,
+                                                            true,
+                                                          )
+                                                        }
+                                                        aria-label="Editar alimento"
+                                                        title="Editar alimento"
+                                                      >
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                          <path d="M12 20h9" />
+                                                          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                                        </svg>
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        className="patient-item-icon-btn danger-icon"
+                                                        onClick={() =>
+                                                          removeMealPlanSubstitutionItem(groupName, substitution.id, item.id)
+                                                        }
+                                                        aria-label="Remover alimento"
+                                                        title="Remover alimento"
+                                                      >
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                          <path d="M3 6h18" />
+                                                          <path d="M8 6V4h8v2" />
+                                                          <path d="M19 6l-1 14H6L5 6" />
+                                                          <path d="M10 11v6" />
+                                                          <path d="M14 11v6" />
+                                                        </svg>
+                                                      </button>
+                                                    </div>
+                                                  )}
+                                                  {isSubstitutionItemEditing ? (
+                                                    <div className="patient-meal-row">
+                                                      <div className="patient-food-autocomplete">
+                                                        <input
+                                                          type="text"
+                                                          list={`meal-plan-substitution-food-options-${substitution.id}-${item.id}`}
+                                                          value={foodSearchValue}
+                                                          onChange={(event) =>
+                                                            changeMealPlanSubstitutionFoodSearch(
+                                                              groupName,
+                                                              substitution.id,
+                                                              item.id,
+                                                              event.target.value,
+                                                            )
+                                                          }
+                                                          placeholder="Digite para buscar alimento..."
+                                                        />
+                                                        <datalist
+                                                          id={`meal-plan-substitution-food-options-${substitution.id}-${item.id}`}
+                                                        >
+                                                          {foods.map((food) => (
+                                                            <option
+                                                              key={food.id}
+                                                              value={food.name}
+                                                              label={`${food.name} (${measurementBasisLabel(food.measurementBasis)})`}
+                                                            />
+                                                          ))}
+                                                        </datalist>
+                                                      </div>
+                                                      <div className="patient-meal-portion-field">
+                                                        <input
+                                                          type="number"
+                                                          min="0"
+                                                          step={unit === "unidade" ? "1" : "0.01"}
+                                                          value={item.portion}
+                                                          onChange={(event) =>
+                                                            changeMealPlanSubstitutionPortion(
+                                                              groupName,
+                                                              substitution.id,
+                                                              item.id,
+                                                              event.target.value,
+                                                            )
+                                                          }
+                                                          placeholder="Porção"
+                                                        />
+                                                        <span>{unit}</span>
+                                                      </div>
+                                                      <div className="patient-meal-row-actions">
+                                                        <button
+                                                          type="button"
+                                                          className="patient-action-btn ghost"
+                                                          onClick={() =>
+                                                            setMealPlanSubstitutionItemEditMode(
+                                                              groupName,
+                                                              substitution.id,
+                                                              item.id,
+                                                              false,
+                                                            )
+                                                          }
+                                                          disabled={!isMealPlanItemReady(item)}
+                                                        >
+                                                          Confirmar
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          className="danger"
+                                                          onClick={() =>
+                                                            removeMealPlanSubstitutionItem(groupName, substitution.id, item.id)
+                                                          }
+                                                        >
+                                                          Remover
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  ) : (
+                                                    <div className="patient-meal-item-display">
+                                                      <strong>{linkedFood?.name || "Alimento não selecionado"}</strong>
+                                                      <span>{`${formatDecimal(itemTotals.portion)} ${unit}`}</span>
+                                                    </div>
+                                                  )}
+                                                  <div className="patient-meal-row-meta">
+                                                    {isSubstitutionItemEditing && (
+                                                      <strong>{linkedFood?.name || "Alimento nao selecionado"}</strong>
+                                                    )}
+                                                    <div className="patient-item-nutrients">
+                                                      <span>{formatDecimal(itemTotals.calories)} kcal</span>
+                                                      <span>P {formatDecimal(itemTotals.protein)}g</span>
+                                                      <span>C {formatDecimal(itemTotals.carbs)}g</span>
+                                                      <span>G {formatDecimal(itemTotals.fat)}g</span>
+                                                      <span>F {formatDecimal(itemTotals.fiber)}g</span>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+
+                                            <div className="patient-substitution-actions">
+                                              <button
+                                                type="button"
+                                                className="patient-action-btn ghost"
+                                                onClick={() => addMealPlanSubstitutionItem(groupName, substitution.id)}
+                                                disabled={!foods.length}
+                                              >
+                                                Adicionar alimento na substituicao
+                                              </button>
+                                            </div>
+                                          </article>
+                                        ))}
+                                      </section>
+                                    )}
+                                  </>
                                 )}
                               </article>
                             );
@@ -3408,53 +4264,110 @@ export default function App() {
                   <div className="patient-progress-bio-grid">
                     <section className="patient-profile-panel patient-progress-spotlight">
                       <div className="patient-progress-head">
-                        <div>
-                          <h5>Grafico de Progressao</h5>
-                          <p>Evolucao visual da jornada do paciente.</p>
+                        <div className="patient-progress-head-copy">
+                          <div className="patient-progress-title-row">
+                            <h5>Grafico de Progressao</h5>
+                            <div className="patient-progress-badge">
+                              {progressDelta !== null ? (progressDelta <= 0 ? "Evolucao positiva" : "Atencao") : "Sem dados"}
+                            </div>
+                          </div>
+                          <p>Acompanhe tendencia, meta e proximos passos do paciente.</p>
                         </div>
-                        <div className="patient-progress-head-actions">
+                        <div className="patient-metrics-actions">
                           <button
                             type="button"
-                            className="patient-progress-history-btn"
-                            onClick={() => setShowProgressHistoryModal(true)}
+                            className="patient-action-btn patient-progress-primary-btn"
+                            onClick={openWeightEntryModal}
+                            disabled={!canRegisterWeightProgress}
+                            title={
+                              !canRegisterWeightProgress
+                                ? "Cadastre uma avaliacao fisica para liberar este recurso."
+                                : undefined
+                            }
                           >
-                            Historico
+                            Registrar progressão de pesagem
                           </button>
-                          <div className="patient-progress-badge">
-                            {progressDelta !== null ? (progressDelta <= 0 ? "Evolucao positiva" : "Atencao") : "Sem dados"}
-                          </div>
                         </div>
                       </div>
-
-                      <div className="patient-progress-layout">
-                        <div className="patient-progress-summary-card">
-                          <div>
-                            <span>Peso atual</span>
-                            <strong>{progressCurrent !== null ? `${formatDecimal(progressCurrent)} kg` : "--"}</strong>
-                          </div>
-                          <div>
-                            <span>Variacao</span>
-                            <strong>
-                              {progressDelta !== null
-                                ? `${progressDelta > 0 ? "+" : ""}${formatDecimal(progressDelta)} kg`
-                                : "--"}
-                            </strong>
-                          </div>
-                          <div>
-                            <span>Meta</span>
-                            <strong>
-                              {progressTarget !== null ? `${formatDecimal(progressTarget)} kg` : "--"}
-                            </strong>
-                          </div>
+                      <div className="patient-progress-kpi-strip">
+                        <article className="patient-progress-kpi-item">
+                          <span>Peso atual</span>
+                          <strong>{progressCurrent !== null ? `${formatDecimal(progressCurrent)} kg` : "--"}</strong>
+                        </article>
+                        <article className="patient-progress-kpi-item">
+                          <span>Variacao</span>
+                          <strong>
+                            {progressDelta !== null
+                              ? `${progressDelta > 0 ? "+" : ""}${formatDecimal(progressDelta)} kg`
+                              : "--"}
+                          </strong>
+                        </article>
+                        <article className="patient-progress-kpi-item">
+                          <span>Meta</span>
+                          <strong>{progressTarget !== null ? `${formatDecimal(progressTarget)} kg` : "--"}</strong>
+                        </article>
+                      </div>
+                      {!canRegisterWeightProgress && (
+                        <p className="patient-panel-hint patient-progress-head-hint">
+                          Cadastre uma avaliacao fisica para liberar o registro de progressao.
+                        </p>
+                      )}
+                      {shouldShowTargetRefreshAlert && (
+                        <div className="patient-metrics-alert">
+                          <span>Meta atual atingida. Defina uma nova meta no gráfico de progressão.</span>
                         </div>
-
+                      )}
+                      <div className="patient-progress-layout">
                         <div>
                           <div className="patient-progress-chart-shell">
+                            <div className="patient-progress-chart-legend">
+                              {progressScale && (
+                                <span>
+                                  Escala: {formatDecimal(progressScale.minValue)} a {formatDecimal(progressScale.maxValue)} kg
+                                </span>
+                              )}
+                              <div className="patient-progress-chart-legend-actions">
+                                <button
+                                  type="button"
+                                  className="patient-progress-history-btn"
+                                  onClick={() => setShowProgressHistoryModal(true)}
+                                >
+                                  Historico
+                                </button>
+                                {progressTarget !== null && (
+                                  <span className="patient-progress-target-chip">
+                                    Meta: {formatDecimal(progressTarget)} kg
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  className={`patient-progress-target-btn ${shouldShowTargetRefreshAlert ? "is-alert" : ""}`}
+                                  onClick={openTargetRefreshModal}
+                                >
+                                  {progressTarget === null
+                                    ? "Definir meta"
+                                    : shouldShowTargetRefreshAlert
+                                      ? "Nova meta"
+                                      : "Ajustar meta"}
+                                </button>
+                                {isDevelopmentMode && hasEvolutionData && (
+                                  <button
+                                    type="button"
+                                    className="patient-progress-dev-btn"
+                                    onClick={clearPatientEvolutionData}
+                                  >
+                                    Remover dados
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                             <svg
                               className="patient-progress-chart"
-                              viewBox="0 0 660 260"
+                              viewBox={`0 0 ${progressChartWidth} ${progressChartHeight}`}
+                              preserveAspectRatio="xMinYMid meet"
                               role="img"
                               aria-label="Grafico de progressao do paciente"
+                              onClick={() => setActiveProgressPointId("")}
                             >
                               <defs>
                                 <linearGradient id="patientProgressGradient" x1="0" y1="0" x2="0" y2="1">
@@ -3462,46 +4375,171 @@ export default function App() {
                                   <stop offset="100%" stopColor="#1ea57b" stopOpacity="0.05" />
                                 </linearGradient>
                               </defs>
-                              <rect x="0" y="0" width="660" height="260" fill="transparent" />
-                              <path d="M 14 246 L 646 246" className="patient-progress-axis" />
-                              <path d="M 14 130 L 646 130" className="patient-progress-grid-line" />
-                              <path d="M 14 32 L 646 32" className="patient-progress-grid-line" />
+                              <rect
+                                x={progressChartLeftX}
+                                y={progressChartPaddingY}
+                                width={progressChartRightX - progressChartLeftX}
+                                height={progressChartBottomY - progressChartPaddingY}
+                                className="patient-progress-canvas"
+                              />
+                              {progressYAxisTicks.map((tick, index) => (
+                                <g key={`tick-${tick.value}-${index}`}>
+                                  <path
+                                    d={`M ${progressChartLeftX} ${tick.y} L ${progressChartRightX} ${tick.y}`}
+                                    className={index === progressYAxisTicks.length - 1 ? "patient-progress-axis" : "patient-progress-grid-line"}
+                                  />
+                                  <text
+                                    x={progressChartLeftX - 10}
+                                    y={tick.y + 4}
+                                    className="patient-progress-y-label"
+                                    textAnchor="end"
+                                  >
+                                    {formatDecimal(tick.value)}
+                                  </text>
+                                </g>
+                              ))}
+                              {progressTargetY !== null && (
+                                <>
+                                  <path
+                                    d={`M ${progressChartLeftX} ${progressTargetY} L ${progressChartRightX} ${progressTargetY}`}
+                                    className="patient-progress-target-line"
+                                  />
+                                  <text
+                                    x={progressChartRightX - 6}
+                                    y={Math.max(progressChartPaddingY + 12, progressTargetY - 8)}
+                                    className="patient-progress-target-text"
+                                    textAnchor="end"
+                                  >
+                                    Meta
+                                  </text>
+                                </>
+                              )}
                               {progressPath && (
                                 <>
                                   <path
-                                    d={`${progressPath} L 646 246 L 14 246 Z`}
+                                    d={`${progressPath} L ${progressChartRightX} ${progressChartBottomY} L ${progressChartLeftX} ${progressChartBottomY} Z`}
                                     fill="url(#patientProgressGradient)"
                                   />
                                   <path d={progressPath} className="patient-progress-line" />
                                 </>
                               )}
-                              {progressPoints.map((point) => (
-                                <circle
-                                  key={point.key}
-                                  cx={point.x}
-                                  cy={point.y}
-                                  r="4.6"
-                                  className="patient-progress-point"
-                                />
-                              ))}
+                              {progressPoints.map((point) => {
+                                const pointActionId = point.sourceEntryId || point.key;
+                                const isActionVisible = point.canManage && activeProgressPointId === pointActionId;
+                                const actionsWidth = 126;
+                                const actionsHeight = 34;
+                                const actionsX = Math.max(
+                                  progressChartLeftX + 6,
+                                  Math.min(point.x - actionsWidth / 2, progressChartRightX - actionsWidth - 6),
+                                );
+                                const rawActionsY = point.y < progressChartPaddingY + 46 ? point.y + 12 : point.y - 46;
+                                const actionsY = Math.max(
+                                  progressChartPaddingY + 4,
+                                  Math.min(rawActionsY, progressChartBottomY - actionsHeight - 4),
+                                );
+                                const connectorStartY = actionsY < point.y ? actionsY + actionsHeight : actionsY;
+                                return (
+                                  <g
+                                    key={point.key}
+                                    className={`patient-progress-point-group ${point.canManage ? "is-manageable" : ""} ${isActionVisible ? "is-active" : ""}`}
+                                    onMouseEnter={() => {
+                                      if (point.canManage) setActiveProgressPointId(pointActionId);
+                                    }}
+                                    onMouseLeave={() => {
+                                      if (!point.canManage) return;
+                                      setActiveProgressPointId((current) => (current === pointActionId ? "" : current));
+                                    }}
+                                    onFocus={() => {
+                                      if (point.canManage) setActiveProgressPointId(pointActionId);
+                                    }}
+                                    onBlur={(event) => {
+                                      if (!point.canManage) return;
+                                      if (event.currentTarget.contains(event.relatedTarget)) return;
+                                      setActiveProgressPointId((current) => (current === pointActionId ? "" : current));
+                                    }}
+                                  >
+                                    {point.isLatest && (
+                                      <circle cx={point.x} cy={point.y} r="12" className="patient-progress-point-glow" />
+                                    )}
+                                    <circle
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r={point.isLatest ? (isActionVisible ? 7.2 : 6.2) : isActionVisible ? 5.4 : 4.6}
+                                      className={`patient-progress-point ${point.isLatest ? "is-latest" : ""} ${point.canManage ? "is-manageable" : ""} ${isActionVisible ? "is-active" : ""}`}
+                                    >
+                                      <title>{`${formatDecimal(point.value)} kg`}</title>
+                                    </circle>
+                                    {point.canManage && (
+                                      <circle
+                                        cx={point.x}
+                                        cy={point.y}
+                                        r="14"
+                                        className="patient-progress-point-hitbox"
+                                        tabIndex={0}
+                                        role="button"
+                                        aria-label={`Gerenciar ponto de ${formatDecimal(point.value)} kg`}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setActiveProgressPointId((current) => (current === pointActionId ? "" : pointActionId));
+                                        }}
+                                        onKeyDown={(event) => {
+                                          if (event.key !== "Enter" && event.key !== " ") return;
+                                          event.preventDefault();
+                                          event.stopPropagation();
+                                          setActiveProgressPointId((current) => (current === pointActionId ? "" : pointActionId));
+                                        }}
+                                      />
+                                    )}
+                                    {isActionVisible && (
+                                      <>
+                                        <path
+                                          d={`M ${point.x} ${connectorStartY} L ${point.x} ${point.y}`}
+                                          className="patient-progress-point-connector"
+                                        />
+                                        <foreignObject
+                                          x={actionsX}
+                                          y={actionsY}
+                                          width={actionsWidth}
+                                          height={actionsHeight}
+                                          onClick={(event) => event.stopPropagation()}
+                                        >
+                                          <div className="patient-progress-point-actions" xmlns="http://www.w3.org/1999/xhtml">
+                                            <button
+                                              type="button"
+                                              className="patient-progress-point-action-btn"
+                                              onClick={() => openWeightEntryEditModal(pointActionId)}
+                                            >
+                                              Editar
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="patient-progress-point-action-btn is-danger"
+                                              onClick={() => handleWeightEntryDelete(pointActionId)}
+                                            >
+                                              Excluir
+                                            </button>
+                                          </div>
+                                        </foreignObject>
+                                      </>
+                                    )}
+                                  </g>
+                                );
+                              })}
                             </svg>
                           </div>
 
                           <div className="patient-progress-labels">
                             {progressLabels.map((label, index) => (
-                              <span key={`${label}-${index}`}>{label}</span>
+                              <span
+                                key={`${label}-${index}`}
+                                className={index === progressLabels.length - 1 ? "is-latest" : ""}
+                              >
+                                {label}
+                              </span>
                             ))}
                           </div>
                         </div>
                       </div>
-                    </section>
-
-                    <section className="patient-profile-panel patient-small-card patient-bio-side-card">
-                      <h5>Bioimpedancia</h5>
-                      <p>Registre a proxima avaliacao de bioimpedancia do paciente.</p>
-                      <button type="button" className="patient-action-btn">
-                        Adicionar bioimpedancia
-                      </button>
                     </section>
                   </div>
 
@@ -3515,7 +4553,7 @@ export default function App() {
                           <div>
                             <h5>Historico da evolucao</h5>
                             <p className="patient-panel-hint">
-                              Datas e valores de pesagem inicial, meta e progresso do paciente.
+                              Datas e valores de progresso e meta do paciente.
                             </p>
                           </div>
                           <button
@@ -3546,6 +4584,367 @@ export default function App() {
                     </div>
                   )}
 
+                  {showPhysicalAssessmentModal && (
+                    <div className="patient-meal-modal-backdrop" onClick={closePhysicalAssessmentModule}>
+                      <section
+                        className="patient-profile-panel patient-meal-modal patient-physical-modal"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="patient-meal-modal-head">
+                          <div>
+                            <h5>Avaliação Física</h5>
+                            <p className="patient-panel-hint">
+                              Histórico de antropometria e cálculo energético do paciente.
+                            </p>
+                          </div>
+                          <div className="patient-physical-head-actions">
+                            <button type="button" className="patient-action-btn" onClick={openPhysicalAssessmentCreateForm}>
+                              Nova avaliação
+                            </button>
+                            <button
+                              type="button"
+                              className="patient-action-btn ghost"
+                              onClick={closePhysicalAssessmentModule}
+                            >
+                              Fechar
+                            </button>
+                          </div>
+                        </div>
+
+                        {!!physicalAssessmentEvolution && (
+                          <div className="patient-physical-evolution">
+                            <span>
+                              Evolução do peso:{" "}
+                              <strong>
+                                {physicalAssessmentEvolution.weightDelta > 0 ? "+" : ""}
+                                {formatDecimal(physicalAssessmentEvolution.weightDelta)} kg
+                              </strong>
+                            </span>
+                            <span>
+                              Evolução do TDEE:{" "}
+                              <strong>
+                                {physicalAssessmentEvolution.tdeeDelta > 0 ? "+" : ""}
+                                {formatDecimal(physicalAssessmentEvolution.tdeeDelta)} kcal
+                              </strong>
+                            </span>
+                          </div>
+                        )}
+
+                        {selectedPatientPhysicalAssessments.length === 0 && (
+                          <p className="patient-meal-empty">
+                            Nenhuma avaliação física registrada para este paciente.
+                          </p>
+                        )}
+
+                        {selectedPatientPhysicalAssessments.length > 0 && (
+                          <div className="patient-physical-table-wrap">
+                            <table className="patient-physical-table">
+                              <thead>
+                                <tr>
+                                  <th>Data</th>
+                                  <th>Peso</th>
+                                  <th>Cintura</th>
+                                  <th>TDEE</th>
+                                  <th>Meta calórica</th>
+                                  <th>Ações</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedPatientPhysicalAssessments.map((assessment) => {
+                                  const waist = (assessment.circumferences || []).find(
+                                    (item) => item.type === "cintura",
+                                  );
+                                  return (
+                                    <tr key={assessment.id}>
+                                      <td>{formatDateOnly(assessment.date)}</td>
+                                      <td>{formatDecimal(assessment.weightKg)} kg</td>
+                                      <td>{waist ? `${formatDecimal(waist.valueCm)} cm` : "--"}</td>
+                                      <td>{formatDecimal(assessment.tdee)} kcal</td>
+                                      <td>{formatDecimal(assessment.calorieTarget)} kcal</td>
+                                      <td>
+                                        <div className="patient-physical-row-actions">
+                                          <button
+                                            type="button"
+                                            className="patient-action-btn ghost"
+                                            onClick={() => openPhysicalAssessmentFormMode(assessment.id, "view")}
+                                          >
+                                            Detalhes
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="patient-action-btn ghost"
+                                            onClick={() => openPhysicalAssessmentFormMode(assessment.id, "edit")}
+                                          >
+                                            Editar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="patient-action-btn subtle-danger"
+                                            onClick={() => removePhysicalAssessment(assessment.id)}
+                                          >
+                                            Excluir
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </section>
+                    </div>
+                  )}
+
+                  {showPhysicalAssessmentFormModal && (
+                    <div className="patient-meal-modal-backdrop" onClick={closePhysicalAssessmentForm}>
+                      <section
+                        className="patient-profile-panel patient-meal-modal patient-physical-form-modal"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="patient-meal-modal-head">
+                          <div>
+                            <h5>
+                              {physicalAssessmentFormMode === "create"
+                                ? "Nova Avaliação Física"
+                                : physicalAssessmentFormMode === "edit"
+                                  ? "Editar Avaliação Física"
+                                  : "Detalhes da Avaliação Física"}
+                            </h5>
+                            <p className="patient-panel-hint">
+                              Dados antropométricos, dobras cutâneas e cálculo energético automático.
+                            </p>
+                          </div>
+                          <button type="button" className="patient-action-btn ghost" onClick={closePhysicalAssessmentForm}>
+                            Fechar
+                          </button>
+                        </div>
+
+                        <div className="patient-physical-tabs">
+                          <button
+                            type="button"
+                            className={`patient-physical-tab ${physicalAssessmentFormTab === "basicos" ? "active" : ""}`}
+                            onClick={() => setPhysicalAssessmentFormTab("basicos")}
+                          >
+                            Dados básicos
+                          </button>
+                          <button
+                            type="button"
+                            className={`patient-physical-tab ${physicalAssessmentFormTab === "circ" ? "active" : ""}`}
+                            onClick={() => setPhysicalAssessmentFormTab("circ")}
+                          >
+                            Circunferências
+                          </button>
+                          <button
+                            type="button"
+                            className={`patient-physical-tab ${physicalAssessmentFormTab === "dobras" ? "active" : ""}`}
+                            onClick={() => setPhysicalAssessmentFormTab("dobras")}
+                          >
+                            Dobras cutâneas
+                          </button>
+                          <button
+                            type="button"
+                            className={`patient-physical-tab ${physicalAssessmentFormTab === "resultado" ? "active" : ""}`}
+                            onClick={() => setPhysicalAssessmentFormTab("resultado")}
+                          >
+                            Resultado
+                          </button>
+                        </div>
+
+                        <form className="patient-physical-form" onSubmit={handlePhysicalAssessmentSubmit}>
+                          {physicalAssessmentFormTab === "basicos" && (
+                            <div className="patient-physical-grid">
+                              <label>
+                                <span>Data da avaliação</span>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={physicalAssessmentForm.date}
+                                  onChange={(event) =>
+                                    changePhysicalAssessmentField("date", normalizeBrDateInput(event.target.value))
+                                  }
+                                  disabled={isPhysicalAssessmentReadOnly}
+                                  placeholder="dd/mm/aaaa"
+                                  maxLength={10}
+                                  required
+                                />
+                              </label>
+                              <label>
+                                <span>Peso (kg)</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={physicalAssessmentForm.weightKg}
+                                  onChange={(event) => changePhysicalAssessmentField("weightKg", event.target.value)}
+                                  disabled={isPhysicalAssessmentReadOnly}
+                                  placeholder="Ex.: 80,5"
+                                  required
+                                />
+                              </label>
+                              <label>
+                                <span>Altura (cm)</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={physicalAssessmentForm.heightCm}
+                                  onChange={(event) => changePhysicalAssessmentField("heightCm", event.target.value)}
+                                  disabled={isPhysicalAssessmentReadOnly}
+                                  placeholder="Ex.: 175"
+                                  required
+                                />
+                              </label>
+                              <label>
+                                <span>Idade</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  value={physicalAssessmentForm.age}
+                                  onChange={(event) => changePhysicalAssessmentField("age", event.target.value)}
+                                  disabled={isPhysicalAssessmentReadOnly}
+                                  required
+                                />
+                              </label>
+                              <label>
+                                <span>Sexo biológico</span>
+                                <select
+                                  value={physicalAssessmentForm.sex}
+                                  onChange={(event) => changePhysicalAssessmentField("sex", event.target.value)}
+                                  disabled={isPhysicalAssessmentReadOnly}
+                                  required
+                                >
+                                  <option value="">Selecione...</option>
+                                  {PHYSICAL_SEX_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>Nível de atividade</span>
+                                <select
+                                  value={physicalAssessmentForm.activityLevel}
+                                  onChange={(event) => changePhysicalAssessmentField("activityLevel", event.target.value)}
+                                  disabled={isPhysicalAssessmentReadOnly}
+                                  required
+                                >
+                                  {PHYSICAL_ACTIVITY_LEVELS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>Objetivo considerado</span>
+                                <input
+                                  type="text"
+                                  value={`${physicalGoalLabel(resolvedPhysicalAssessmentGoal)} (automático)`}
+                                  disabled
+                                />
+                              </label>
+                              <label className="patient-physical-notes">
+                                <span>Observações</span>
+                                <textarea
+                                  value={physicalAssessmentForm.notes}
+                                  onChange={(event) => changePhysicalAssessmentField("notes", event.target.value)}
+                                  disabled={isPhysicalAssessmentReadOnly}
+                                  placeholder="Observações clínicas (opcional)"
+                                />
+                              </label>
+                            </div>
+                          )}
+
+                          {physicalAssessmentFormTab === "circ" && (
+                            <div className="patient-physical-grid">
+                              {CIRCUMFERENCE_FIELDS.map((field) => (
+                                <label key={field.key}>
+                                  <span>{field.label} (cm)</span>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={physicalAssessmentForm.circumferences[field.key] || ""}
+                                    onChange={(event) =>
+                                      changePhysicalAssessmentCircumference(field.key, event.target.value)
+                                    }
+                                    disabled={isPhysicalAssessmentReadOnly}
+                                    placeholder="Opcional"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          )}
+
+                          {physicalAssessmentFormTab === "dobras" && (
+                            <div className="patient-physical-grid">
+                              {SKINFOLD_FIELDS.map((field) => (
+                                <label key={field.key}>
+                                  <span>{field.label} (mm)</span>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={physicalAssessmentForm.skinfolds[field.key] || ""}
+                                    onChange={(event) => changePhysicalAssessmentSkinfold(field.key, event.target.value)}
+                                    disabled={isPhysicalAssessmentReadOnly}
+                                    placeholder="2 a 60 mm (opcional)"
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          )}
+
+                          {physicalAssessmentFormTab === "resultado" && (
+                            <div className="patient-physical-result-grid">
+                              {!physicalAssessmentPreviewResult && (
+                                <p className="patient-meal-empty">
+                                  Preencha os dados básicos para visualizar BMR, TDEE e meta de macros.
+                                </p>
+                              )}
+                              {!!physicalAssessmentPreviewResult && (
+                                <>
+                                  <div>
+                                    <span>BMR</span>
+                                    <strong>{formatDecimal(physicalAssessmentPreviewResult.bmr)} kcal</strong>
+                                  </div>
+                                  <div>
+                                    <span>TDEE</span>
+                                    <strong>{formatDecimal(physicalAssessmentPreviewResult.tdee)} kcal</strong>
+                                  </div>
+                                  <div>
+                                    <span>Meta calórica</span>
+                                    <strong>{formatDecimal(physicalAssessmentPreviewResult.calorieTarget)} kcal</strong>
+                                  </div>
+                                  <div>
+                                    <span>Proteína</span>
+                                    <strong>{formatDecimal(physicalAssessmentPreviewResult.proteinG)} g</strong>
+                                  </div>
+                                  <div>
+                                    <span>Gordura</span>
+                                    <strong>{formatDecimal(physicalAssessmentPreviewResult.fatG)} g</strong>
+                                  </div>
+                                  <div>
+                                    <span>Carboidrato</span>
+                                    <strong>{formatDecimal(physicalAssessmentPreviewResult.carbsG)} g</strong>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          )}
+
+                          {!isPhysicalAssessmentReadOnly && (
+                            <div className="patient-weight-entry-actions">
+                              <button type="submit" className="patient-action-btn" disabled={physicalAssessmentSubmitting}>
+                                {physicalAssessmentFormMode === "edit" ? "Atualizar avaliação" : "Salvar avaliação"}
+                              </button>
+                            </div>
+                          )}
+                        </form>
+                      </section>
+                    </div>
+                  )}
+
                   {showWeightEntryModal && (
                     <div className="patient-meal-modal-backdrop" onClick={closeWeightEntryModal}>
                       <section
@@ -3554,10 +4953,10 @@ export default function App() {
                       >
                         <div className="patient-meal-modal-head">
                           <div>
-                            <h5>{weightEntryMode === "initial" ? "Registrar primeira pesagem" : "Registrar progressao"}</h5>
+                            <h5>{editingWeightEntryId ? "Editar progressao" : "Registrar progressao"}</h5>
                             <p className="patient-panel-hint">
-                              {weightEntryMode === "initial"
-                                ? "Defina o peso inicial do paciente e a meta de peso."
+                              {editingWeightEntryId
+                                ? "Atualize a pesagem selecionada no grafico."
                                 : "Insira apenas a nova pesagem para atualizar a evolucao."}
                             </p>
                           </div>
@@ -3567,53 +4966,19 @@ export default function App() {
                         </div>
 
                         <form className="patient-weight-entry-form" onSubmit={handleWeightEntrySubmit}>
-                          {weightEntryMode === "initial" && (
-                            <>
-                              <label>
-                                <span>Peso inicial (kg)</span>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={weightEntryForm.initialWeight}
-                                  onChange={(event) =>
-                                    setWeightEntryForm((prev) => ({ ...prev, initialWeight: event.target.value }))
-                                  }
-                                  placeholder="Ex.: 82,4"
-                                  required
-                                />
-                              </label>
-
-                              <label>
-                                <span>Meta de peso (kg)</span>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={weightEntryForm.targetWeight}
-                                  onChange={(event) =>
-                                    setWeightEntryForm((prev) => ({ ...prev, targetWeight: event.target.value }))
-                                  }
-                                  placeholder="Ex.: 74,0"
-                                  required
-                                />
-                              </label>
-                            </>
-                          )}
-
-                          {weightEntryMode === "progress" && (
-                            <label>
-                              <span>Nova pesagem (kg)</span>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={weightEntryForm.progressWeight}
-                                onChange={(event) =>
-                                  setWeightEntryForm((prev) => ({ ...prev, progressWeight: event.target.value }))
-                                }
-                                placeholder="Ex.: 79,8"
-                                required
-                              />
-                            </label>
-                          )}
+                          <label>
+                            <span>{editingWeightEntryId ? "Pesagem (kg)" : "Nova pesagem (kg)"}</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={weightEntryForm.progressWeight}
+                              onChange={(event) =>
+                                setWeightEntryForm((prev) => ({ ...prev, progressWeight: event.target.value }))
+                              }
+                              placeholder="Ex.: 79,8"
+                              required
+                            />
+                          </label>
 
                           <div className="patient-weight-entry-meta">
                             <span>Peso atual: {progressCurrent !== null ? `${formatDecimal(progressCurrent)} kg` : "--"}</span>
@@ -3621,10 +4986,10 @@ export default function App() {
                           </div>
 
                           <div className="patient-weight-entry-actions">
-                            <button type="submit" className="patient-action-btn">
-                              {weightEntryMode === "initial" ? "Salvar pesagem inicial" : "Salvar progressao"}
+                            <button type="submit" className="patient-action-btn" disabled={!canRegisterWeightProgress}>
+                              {editingWeightEntryId ? "Salvar alteracao" : "Salvar progressao"}
                             </button>
-                            {hasEvolutionData && (
+                            {isDevelopmentMode && hasEvolutionData && (
                               <button
                                 type="button"
                                 className="patient-action-btn subtle-danger"
@@ -3995,14 +5360,40 @@ export default function App() {
                     <div className="patient-card-header">
                       <div className="patient-card-avatar">{initials(item.name)}</div>
                       <div className="patient-card-main">
-                        <strong>{item.name}</strong>
-                        <p>{item.goal || "Sem objetivo definido"}</p>
+                        <strong title={item.name}>{formatPatientCardName(item.name)}</strong>
+                        <p className={`patient-card-goal ${item.goal ? "" : "is-empty"}`}>
+                          {item.goal || "Sem objetivo definido"}
+                        </p>
                       </div>
                     </div>
                     <div className="patient-card-meta">
-                      <span>{item.age ? `${item.age} anos` : "Idade nao informada"}</span>
-                      <span>{item.email || "Email nao informado"}</span>
-                      <span>{item.phone || "Telefone nao informado"}</span>
+                      <span className="patient-card-meta-row">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <circle cx="12" cy="8" r="3.3" />
+                          <path d="M 5.3 19.2 C 6.3 15.9 8.9 14.2 12 14.2 C 15.1 14.2 17.7 15.9 18.7 19.2" />
+                        </svg>
+                        {item.age ? `${item.age} anos` : "Idade nao informada"}
+                      </span>
+                      <span className="patient-card-meta-row">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <rect x="3.3" y="5.4" width="17.4" height="13.2" rx="2.3" />
+                          <path d="M 4.8 7.2 L 12 12.6 L 19.2 7.2" />
+                        </svg>
+                        {item.email || "Email nao informado"}
+                      </span>
+                      <span className="patient-card-meta-row">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M 6.2 4.8 C 6.8 4.2 7.6 4.4 8.2 4.9 L 10.1 6.8 C 10.6 7.3 10.8 8.1 10.2 8.8 L 9.3 9.9 C 9 10.2 8.9 10.7 9.1 11 C 10 12.7 11.4 14 13.1 14.9 C 13.4 15.1 13.9 15 14.2 14.7 L 15.3 13.8 C 16 13.2 16.8 13.4 17.3 13.9 L 19.2 15.8 C 19.8 16.4 20 17.2 19.3 17.8 C 18.4 18.8 17.2 19.2 15.9 18.8 C 11.2 17.5 6.5 12.8 5.2 8.1 C 4.8 6.8 5.2 5.6 6.2 4.8 Z" />
+                        </svg>
+                        {item.phone || "Telefone nao informado"}
+                      </span>
+                    </div>
+                    <div className="patient-card-footer">
+                      <span>Ver perfil</span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M 5 12 H 19" />
+                        <path d="M 13 6 L 19 12 L 13 18" />
+                      </svg>
                     </div>
                   </button>
                 ))}
@@ -4437,4 +5828,5 @@ export default function App() {
     </div>
   );
 }
+
 

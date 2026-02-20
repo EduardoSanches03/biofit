@@ -11,6 +11,26 @@ const PORT = process.env.PORT || 3001;
 const DATABASE_URL = process.env.DATABASE_URL;
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 const TOKEN_EXPIRES_IN = process.env.TOKEN_EXPIRES_IN || "7d";
+const PHYSICAL_ACTIVITY_FACTORS = {
+  sedentario: 1.2,
+  leve: 1.375,
+  moderado: 1.55,
+  alto: 1.725,
+  muitoAlto: 1.9,
+};
+const PHYSICAL_GOALS = new Set(["perder", "manter", "ganhar"]);
+const PHYSICAL_SEX_OPTIONS = new Set(["masculino", "feminino"]);
+const CIRCUMFERENCE_TYPES = new Set(["cintura", "quadril", "pescoco", "braco", "coxa"]);
+const SKINFOLD_SITES = new Set([
+  "triceps",
+  "subescapular",
+  "suprailiaca",
+  "abdominal",
+  "peitoral",
+  "axilarMedia",
+  "coxa",
+  "panturrilha",
+]);
 
 if (!DATABASE_URL) {
   console.error("DATABASE_URL nao configurada. Defina no arquivo .env.");
@@ -261,6 +281,63 @@ async function ensureDatabase() {
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_user_patient ON plans(user_id, patient_id);
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS physical_assessments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      patient_id TEXT REFERENCES patients(id) ON DELETE CASCADE,
+      assessment_date DATE NOT NULL,
+      weight_kg DOUBLE PRECISION NOT NULL CHECK (weight_kg > 0),
+      height_cm DOUBLE PRECISION NOT NULL CHECK (height_cm > 0),
+      age INTEGER NOT NULL CHECK (age > 0),
+      sex TEXT NOT NULL CHECK (sex IN ('masculino', 'feminino')),
+      activity_level TEXT NOT NULL CHECK (activity_level IN ('sedentario', 'leve', 'moderado', 'alto', 'muitoAlto')),
+      goal TEXT NOT NULL CHECK (goal IN ('perder', 'manter', 'ganhar')),
+      notes TEXT NOT NULL DEFAULT '',
+      bmr DOUBLE PRECISION NOT NULL,
+      tdee DOUBLE PRECISION NOT NULL,
+      calorie_target DOUBLE PRECISION NOT NULL,
+      protein_g DOUBLE PRECISION NOT NULL,
+      fat_g DOUBLE PRECISION NOT NULL,
+      carbs_g DOUBLE PRECISION NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_physical_assessments_user_patient_date
+    ON physical_assessments(user_id, patient_id, assessment_date DESC);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS circumference_measurements (
+      id TEXT PRIMARY KEY,
+      assessment_id TEXT REFERENCES physical_assessments(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK (type IN ('cintura', 'quadril', 'pescoco', 'braco', 'coxa')),
+      value_cm DOUBLE PRECISION NOT NULL CHECK (value_cm > 0)
+    );
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_circumference_measurement_unique
+    ON circumference_measurements(assessment_id, type);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS skinfold_measurements (
+      id TEXT PRIMARY KEY,
+      assessment_id TEXT REFERENCES physical_assessments(id) ON DELETE CASCADE,
+      site TEXT NOT NULL CHECK (site IN ('triceps', 'subescapular', 'suprailiaca', 'abdominal', 'peitoral', 'axilarMedia', 'coxa', 'panturrilha')),
+      value_mm DOUBLE PRECISION NOT NULL CHECK (value_mm >= 2 AND value_mm <= 60)
+    );
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_skinfold_measurement_unique
+    ON skinfold_measurements(assessment_id, site);
+  `);
 }
 
 function validatePatient(body) {
@@ -334,6 +411,83 @@ function normalizeWeightHistory(rawHistory) {
     })
     .filter(Boolean)
     .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+}
+
+function buildAssessmentWeightEntry(assessmentId, assessmentDate, weightKg) {
+  const parsedDate = new Date(`${assessmentDate}T12:00:00.000Z`);
+  const recordedAt = Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+  return {
+    id: `assessment-${assessmentId}`,
+    weight: Number(Number(weightKg).toFixed(2)),
+    recordedAt,
+  };
+}
+
+async function syncPatientWeightFromAssessment(client, { userId, patientId, assessmentId, assessmentDate, weightKg }) {
+  const patientResult = await client.query(
+    `
+      SELECT weight_history_json AS "weightHistory"
+      FROM patients
+      WHERE id = $1 AND user_id = $2
+      LIMIT 1
+      FOR UPDATE;
+    `,
+    [patientId, userId],
+  );
+  if (!patientResult.rows.length) return;
+
+  const assessmentEntry = buildAssessmentWeightEntry(assessmentId, assessmentDate, weightKg);
+  const baseHistory = Array.isArray(patientResult.rows[0].weightHistory) ? patientResult.rows[0].weightHistory : [];
+  const historyWithoutAssessment = baseHistory.filter(
+    (entry) => String(entry?.id || "").trim() !== assessmentEntry.id,
+  );
+  const nextWeightHistory = normalizeWeightHistory([...historyWithoutAssessment, assessmentEntry]);
+  const nextCurrentWeight = nextWeightHistory.length
+    ? nextWeightHistory[nextWeightHistory.length - 1].weight
+    : assessmentEntry.weight;
+
+  await client.query(
+    `
+      UPDATE patients
+      SET
+        current_weight = $3,
+        weight_history_json = $4::jsonb
+      WHERE id = $1 AND user_id = $2;
+    `,
+    [patientId, userId, nextCurrentWeight, JSON.stringify(nextWeightHistory)],
+  );
+}
+
+async function removeAssessmentWeightFromPatient(client, { userId, patientId, assessmentId }) {
+  const patientResult = await client.query(
+    `
+      SELECT weight_history_json AS "weightHistory"
+      FROM patients
+      WHERE id = $1 AND user_id = $2
+      LIMIT 1
+      FOR UPDATE;
+    `,
+    [patientId, userId],
+  );
+  if (!patientResult.rows.length) return;
+
+  const assessmentEntryId = `assessment-${assessmentId}`;
+  const baseHistory = Array.isArray(patientResult.rows[0].weightHistory) ? patientResult.rows[0].weightHistory : [];
+  const nextWeightHistory = normalizeWeightHistory(
+    baseHistory.filter((entry) => String(entry?.id || "").trim() !== assessmentEntryId),
+  );
+  const nextCurrentWeight = nextWeightHistory.length ? nextWeightHistory[nextWeightHistory.length - 1].weight : null;
+
+  await client.query(
+    `
+      UPDATE patients
+      SET
+        current_weight = $3,
+        weight_history_json = $4::jsonb
+      WHERE id = $1 AND user_id = $2;
+    `,
+    [patientId, userId, nextCurrentWeight, JSON.stringify(nextWeightHistory)],
+  );
 }
 
 function normalizeTargetHistory(rawHistory) {
@@ -419,6 +573,263 @@ function validateConsultation(body) {
   }
   return null;
 }
+
+function normalizeAssessmentDate(value) {
+  if (!value) return "";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) return "";
+  return parsedDate.toISOString().slice(0, 10);
+}
+
+function inferPhysicalGoalFromPatientGoal(value, fallback = "manter") {
+  const normalizedFallback = PHYSICAL_GOALS.has(fallback) ? fallback : "manter";
+  const raw = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (!raw) return normalizedFallback;
+  if (
+    raw.includes("perd") ||
+    raw.includes("emagrec") ||
+    raw.includes("redu") ||
+    raw.includes("deficit") ||
+    raw.includes("seca")
+  ) {
+    return "perder";
+  }
+  if (
+    raw.includes("ganh") ||
+    raw.includes("hipertrof") ||
+    raw.includes("massa") ||
+    raw.includes("aument") ||
+    raw.includes("bulk")
+  ) {
+    return "ganhar";
+  }
+  if (raw.includes("mant")) return "manter";
+  return normalizedFallback;
+}
+
+function normalizePhysicalAssessmentMeasurements(list, keyName, valueName) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry) => ({
+      [keyName]: String(entry?.[keyName] || "").trim(),
+      [valueName]: Number(entry?.[valueName]),
+    }))
+    .filter((entry) => entry[keyName] && Number.isFinite(entry[valueName]) && entry[valueName] > 0);
+}
+
+function calculatePhysicalAssessmentResult({
+  weightKg,
+  heightCm,
+  age,
+  sex,
+  activityLevel,
+  goal,
+}) {
+  const weight = Number(weightKg);
+  const height = Number(heightCm);
+  const ageNumber = Number(age);
+  const factor = PHYSICAL_ACTIVITY_FACTORS[activityLevel] || PHYSICAL_ACTIVITY_FACTORS.moderado;
+
+  const bmrRaw =
+    sex === "masculino"
+      ? 10 * weight + 6.25 * height - 5 * ageNumber + 5
+      : 10 * weight + 6.25 * height - 5 * ageNumber - 161;
+  const tdeeRaw = bmrRaw * factor;
+
+  let calorieTargetRaw = tdeeRaw;
+  if (goal === "perder") calorieTargetRaw = tdeeRaw - 400;
+  if (goal === "ganhar") calorieTargetRaw = tdeeRaw + 300;
+
+  if (goal === "perder") {
+    const minCalories = sex === "masculino" ? 1500 : 1200;
+    calorieTargetRaw = Math.max(calorieTargetRaw, minCalories);
+  }
+
+  const proteinMultiplier = goal === "perder" ? 1.8 : 1.6;
+  const proteinRaw = weight * proteinMultiplier;
+  let fatRaw = weight * 0.8;
+  let carbsRaw = (calorieTargetRaw - (proteinRaw * 4 + fatRaw * 9)) / 4;
+
+  if (carbsRaw < 0) {
+    fatRaw = weight * 0.6;
+    carbsRaw = (calorieTargetRaw - (proteinRaw * 4 + fatRaw * 9)) / 4;
+  }
+  if (carbsRaw < 0) carbsRaw = 0;
+
+  return {
+    bmr: Number(bmrRaw.toFixed(2)),
+    tdee: Number(tdeeRaw.toFixed(2)),
+    calorieTarget: Number(calorieTargetRaw.toFixed(2)),
+    proteinG: Number(proteinRaw.toFixed(2)),
+    fatG: Number(fatRaw.toFixed(2)),
+    carbsG: Number(carbsRaw.toFixed(2)),
+  };
+}
+
+function validatePhysicalAssessment(body) {
+  const patientId = String(body?.patientId || "").trim();
+  if (!patientId) return "Paciente e obrigatorio.";
+
+  const assessmentDate = normalizeAssessmentDate(body?.date);
+  if (!assessmentDate) return "Data da avaliacao invalida.";
+
+  const weightKg = Number(body?.weightKg);
+  if (!Number.isFinite(weightKg) || weightKg <= 0) return "Peso (kg) invalido.";
+
+  const heightCm = Number(body?.heightCm);
+  if (!Number.isFinite(heightCm) || heightCm <= 0) return "Altura (cm) invalida.";
+
+  const age = Number(body?.age);
+  if (!Number.isInteger(age) || age <= 0) return "Idade invalida.";
+
+  const sex = String(body?.sex || "").trim();
+  if (!PHYSICAL_SEX_OPTIONS.has(sex)) return "Sexo biologico invalido.";
+
+  const activityLevel = String(body?.activityLevel || "").trim();
+  if (!Object.prototype.hasOwnProperty.call(PHYSICAL_ACTIVITY_FACTORS, activityLevel)) {
+    return "Nivel de atividade invalido.";
+  }
+
+  const goal = String(body?.goal || "").trim();
+  if (goal && !PHYSICAL_GOALS.has(goal)) return "Objetivo invalido.";
+
+  if (body?.circumferences !== undefined && !Array.isArray(body.circumferences)) {
+    return "Circunferencias invalidas.";
+  }
+  if (Array.isArray(body?.circumferences)) {
+    const usedTypes = new Set();
+    for (const entry of body.circumferences) {
+      const type = String(entry?.type || "").trim();
+      const valueCm = Number(entry?.valueCm);
+      if (!CIRCUMFERENCE_TYPES.has(type)) return "Tipo de circunferencia invalido.";
+      if (!Number.isFinite(valueCm) || valueCm <= 0) return "Valor de circunferencia invalido.";
+      if (usedTypes.has(type)) return "Circunferencia duplicada.";
+      usedTypes.add(type);
+    }
+  }
+
+  if (body?.skinfolds !== undefined && !Array.isArray(body.skinfolds)) {
+    return "Dobras cutaneas invalidas.";
+  }
+  if (Array.isArray(body?.skinfolds)) {
+    const usedSites = new Set();
+    for (const entry of body.skinfolds) {
+      const site = String(entry?.site || "").trim();
+      const valueMm = Number(entry?.valueMm);
+      if (!SKINFOLD_SITES.has(site)) return "Local de dobra cutanea invalido.";
+      if (!Number.isFinite(valueMm) || valueMm < 2 || valueMm > 60) {
+        return "Dobras cutaneas devem estar entre 2 e 60 mm.";
+      }
+      if (usedSites.has(site)) return "Dobra cutanea duplicada.";
+      usedSites.add(site);
+    }
+  }
+
+  return null;
+}
+
+function normalizePhysicalAssessmentPayload(body, resolvedGoal = "manter") {
+  const date = normalizeAssessmentDate(body?.date);
+  const weightKg = Number(Number(body?.weightKg).toFixed(2));
+  const heightCm = Number(Number(body?.heightCm).toFixed(2));
+  const age = Number(body?.age);
+  const sex = String(body?.sex || "").trim();
+  const activityLevel = String(body?.activityLevel || "").trim();
+  const bodyGoal = String(body?.goal || "").trim();
+  const goal = PHYSICAL_GOALS.has(resolvedGoal) ? resolvedGoal : PHYSICAL_GOALS.has(bodyGoal) ? bodyGoal : "manter";
+  const notes = typeof body?.notes === "string" ? body.notes.trim() : "";
+  const circumferences = normalizePhysicalAssessmentMeasurements(body?.circumferences, "type", "valueCm").map(
+    (entry) => ({
+      type: entry.type,
+      valueCm: Number(entry.valueCm.toFixed(2)),
+    }),
+  );
+  const skinfolds = normalizePhysicalAssessmentMeasurements(body?.skinfolds, "site", "valueMm").map((entry) => ({
+    site: entry.site,
+    valueMm: Number(entry.valueMm.toFixed(2)),
+  }));
+  const result = calculatePhysicalAssessmentResult({
+    weightKg,
+    heightCm,
+    age,
+    sex,
+    activityLevel,
+    goal,
+  });
+
+  return {
+    patientId: String(body?.patientId || "").trim(),
+    date,
+    weightKg,
+    heightCm,
+    age,
+    sex,
+    activityLevel,
+    goal,
+    notes,
+    circumferences,
+    skinfolds,
+    result,
+  };
+}
+
+const PHYSICAL_ASSESSMENT_SELECT_SQL = `
+  SELECT
+    pa.id,
+    pa.patient_id AS "patientId",
+    pa.assessment_date AS "date",
+    pa.weight_kg AS "weightKg",
+    pa.height_cm AS "heightCm",
+    pa.age,
+    pa.sex,
+    pa.activity_level AS "activityLevel",
+    pa.goal,
+    pa.notes,
+    pa.bmr,
+    pa.tdee,
+    pa.calorie_target AS "calorieTarget",
+    pa.protein_g AS "proteinG",
+    pa.fat_g AS "fatG",
+    pa.carbs_g AS "carbsG",
+    pa.created_at AS "createdAt",
+    pa.updated_at AS "updatedAt",
+    COALESCE(
+      (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', cm.id,
+            'type', cm.type,
+            'valueCm', cm.value_cm
+          )
+          ORDER BY cm.type
+        )
+        FROM circumference_measurements cm
+        WHERE cm.assessment_id = pa.id
+      ),
+      '[]'::jsonb
+    ) AS circumferences,
+    COALESCE(
+      (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', sm.id,
+            'site', sm.site,
+            'valueMm', sm.value_mm
+          )
+          ORDER BY sm.site
+        )
+        FROM skinfold_measurements sm
+        WHERE sm.assessment_id = pa.id
+      ),
+      '[]'::jsonb
+    ) AS skinfolds
+  FROM physical_assessments pa
+`;
 
 function normalizePlanPayload(body) {
   const rawDescription = typeof body.description === "string" ? body.description.trim() : "";
@@ -864,6 +1275,378 @@ app.put("/api/plans/:patientId", async (req, res, next) => {
   }
 });
 
+app.get("/api/physical-assessments", async (req, res, next) => {
+  try {
+    const patientId = String(req.query.patientId || "").trim();
+    const values = [req.auth.userId];
+    let whereSql = "WHERE pa.user_id = $1";
+
+    if (patientId) {
+      const patientCheck = await pool.query(
+        "SELECT id FROM patients WHERE id = $1 AND user_id = $2 LIMIT 1;",
+        [patientId, req.auth.userId],
+      );
+      if (!patientCheck.rows.length) {
+        return res.status(404).json({ error: "Paciente nao encontrado." });
+      }
+      values.push(patientId);
+      whereSql += " AND pa.patient_id = $2";
+    }
+
+    const { rows } = await pool.query(
+      `
+        ${PHYSICAL_ASSESSMENT_SELECT_SQL}
+        ${whereSql}
+        ORDER BY pa.assessment_date DESC, pa.created_at DESC;
+      `,
+      values,
+    );
+    return res.json(rows);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get("/api/physical-assessments/:id", async (req, res, next) => {
+  try {
+    const assessmentId = String(req.params.id || "").trim();
+    if (!assessmentId) {
+      return res.status(400).json({ error: "Avaliacao fisica invalida." });
+    }
+
+    const { rows } = await pool.query(
+      `
+        ${PHYSICAL_ASSESSMENT_SELECT_SQL}
+        WHERE pa.id = $1 AND pa.user_id = $2
+        LIMIT 1;
+      `,
+      [assessmentId, req.auth.userId],
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: "Avaliacao fisica nao encontrada." });
+    }
+    return res.json(rows[0]);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post("/api/physical-assessments", async (req, res, next) => {
+  try {
+    const validationError = validatePhysicalAssessment(req.body || {});
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    const patientId = String(req.body?.patientId || "").trim();
+    const requestedGoal = String(req.body?.goal || "").trim();
+    const fallbackGoal = PHYSICAL_GOALS.has(requestedGoal) ? requestedGoal : "manter";
+    const patientCheck = await pool.query(
+      "SELECT id, goal FROM patients WHERE id = $1 AND user_id = $2 LIMIT 1;",
+      [patientId, req.auth.userId],
+    );
+    if (!patientCheck.rows.length) {
+      return res.status(404).json({ error: "Paciente nao encontrado." });
+    }
+    const resolvedGoal = inferPhysicalGoalFromPatientGoal(patientCheck.rows[0].goal, fallbackGoal);
+    const payload = normalizePhysicalAssessmentPayload(req.body || {}, resolvedGoal);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const assessmentId = randomUUID();
+      await client.query(
+        `
+          INSERT INTO physical_assessments (
+            id,
+            user_id,
+            patient_id,
+            assessment_date,
+            weight_kg,
+            height_cm,
+            age,
+            sex,
+            activity_level,
+            goal,
+            notes,
+            bmr,
+            tdee,
+            calorie_target,
+            protein_g,
+            fat_g,
+            carbs_g
+          )
+          VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
+        `,
+        [
+          assessmentId,
+          req.auth.userId,
+          payload.patientId,
+          payload.date,
+          payload.weightKg,
+          payload.heightCm,
+          payload.age,
+          payload.sex,
+          payload.activityLevel,
+          payload.goal,
+          payload.notes,
+          payload.result.bmr,
+          payload.result.tdee,
+          payload.result.calorieTarget,
+          payload.result.proteinG,
+          payload.result.fatG,
+          payload.result.carbsG,
+        ],
+      );
+
+      for (const item of payload.circumferences) {
+        await client.query(
+          `
+            INSERT INTO circumference_measurements (id, assessment_id, type, value_cm)
+            VALUES ($1, $2, $3, $4);
+          `,
+          [randomUUID(), assessmentId, item.type, item.valueCm],
+        );
+      }
+
+      for (const item of payload.skinfolds) {
+        await client.query(
+          `
+            INSERT INTO skinfold_measurements (id, assessment_id, site, value_mm)
+            VALUES ($1, $2, $3, $4);
+          `,
+          [randomUUID(), assessmentId, item.site, item.valueMm],
+        );
+      }
+      await syncPatientWeightFromAssessment(client, {
+        userId: req.auth.userId,
+        patientId: payload.patientId,
+        assessmentId,
+        assessmentDate: payload.date,
+        weightKg: payload.weightKg,
+      });
+
+      const { rows } = await client.query(
+        `
+          ${PHYSICAL_ASSESSMENT_SELECT_SQL}
+          WHERE pa.id = $1 AND pa.user_id = $2
+          LIMIT 1;
+        `,
+        [assessmentId, req.auth.userId],
+      );
+      await client.query("COMMIT");
+      return res.status(201).json(rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      return next(error);
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.put("/api/physical-assessments/:id", async (req, res, next) => {
+  try {
+    const validationError = validatePhysicalAssessment(req.body || {});
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    const assessmentId = String(req.params.id || "").trim();
+    if (!assessmentId) {
+      return res.status(400).json({ error: "Avaliacao fisica invalida." });
+    }
+
+    const patientId = String(req.body?.patientId || "").trim();
+    const requestedGoal = String(req.body?.goal || "").trim();
+    const fallbackGoal = PHYSICAL_GOALS.has(requestedGoal) ? requestedGoal : "manter";
+    const patientCheck = await pool.query(
+      "SELECT id, goal FROM patients WHERE id = $1 AND user_id = $2 LIMIT 1;",
+      [patientId, req.auth.userId],
+    );
+    if (!patientCheck.rows.length) {
+      return res.status(404).json({ error: "Paciente nao encontrado." });
+    }
+    const resolvedGoal = inferPhysicalGoalFromPatientGoal(patientCheck.rows[0].goal, fallbackGoal);
+    const payload = normalizePhysicalAssessmentPayload(req.body || {}, resolvedGoal);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existingAssessmentResult = await client.query(
+        `
+          SELECT patient_id AS "patientId"
+          FROM physical_assessments
+          WHERE id = $1 AND user_id = $2
+          LIMIT 1
+          FOR UPDATE;
+        `,
+        [assessmentId, req.auth.userId],
+      );
+      if (!existingAssessmentResult.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Avaliacao fisica nao encontrada." });
+      }
+      const previousPatientId = String(existingAssessmentResult.rows[0].patientId || "").trim();
+
+      const updateResult = await client.query(
+        `
+          UPDATE physical_assessments
+          SET
+            patient_id = $3,
+            assessment_date = $4::date,
+            weight_kg = $5,
+            height_cm = $6,
+            age = $7,
+            sex = $8,
+            activity_level = $9,
+            goal = $10,
+            notes = $11,
+            bmr = $12,
+            tdee = $13,
+            calorie_target = $14,
+            protein_g = $15,
+            fat_g = $16,
+            carbs_g = $17,
+            updated_at = NOW()
+          WHERE id = $1 AND user_id = $2;
+        `,
+        [
+          assessmentId,
+          req.auth.userId,
+          payload.patientId,
+          payload.date,
+          payload.weightKg,
+          payload.heightCm,
+          payload.age,
+          payload.sex,
+          payload.activityLevel,
+          payload.goal,
+          payload.notes,
+          payload.result.bmr,
+          payload.result.tdee,
+          payload.result.calorieTarget,
+          payload.result.proteinG,
+          payload.result.fatG,
+          payload.result.carbsG,
+        ],
+      );
+      if (updateResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Avaliacao fisica nao encontrada." });
+      }
+
+      await client.query("DELETE FROM circumference_measurements WHERE assessment_id = $1;", [assessmentId]);
+      await client.query("DELETE FROM skinfold_measurements WHERE assessment_id = $1;", [assessmentId]);
+
+      for (const item of payload.circumferences) {
+        await client.query(
+          `
+            INSERT INTO circumference_measurements (id, assessment_id, type, value_cm)
+            VALUES ($1, $2, $3, $4);
+          `,
+          [randomUUID(), assessmentId, item.type, item.valueCm],
+        );
+      }
+
+      for (const item of payload.skinfolds) {
+        await client.query(
+          `
+            INSERT INTO skinfold_measurements (id, assessment_id, site, value_mm)
+            VALUES ($1, $2, $3, $4);
+          `,
+          [randomUUID(), assessmentId, item.site, item.valueMm],
+        );
+      }
+      await syncPatientWeightFromAssessment(client, {
+        userId: req.auth.userId,
+        patientId: payload.patientId,
+        assessmentId,
+        assessmentDate: payload.date,
+        weightKg: payload.weightKg,
+      });
+      if (previousPatientId && previousPatientId !== payload.patientId) {
+        await removeAssessmentWeightFromPatient(client, {
+          userId: req.auth.userId,
+          patientId: previousPatientId,
+          assessmentId,
+        });
+      }
+
+      const { rows } = await client.query(
+        `
+          ${PHYSICAL_ASSESSMENT_SELECT_SQL}
+          WHERE pa.id = $1 AND pa.user_id = $2
+          LIMIT 1;
+        `,
+        [assessmentId, req.auth.userId],
+      );
+      await client.query("COMMIT");
+      return res.json(rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      return next(error);
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.delete("/api/physical-assessments/:id", async (req, res, next) => {
+  try {
+    const assessmentId = String(req.params.id || "").trim();
+    if (!assessmentId) {
+      return res.status(400).json({ error: "Avaliacao fisica invalida." });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const assessmentResult = await client.query(
+        `
+          SELECT patient_id AS "patientId"
+          FROM physical_assessments
+          WHERE id = $1 AND user_id = $2
+          LIMIT 1
+          FOR UPDATE;
+        `,
+        [assessmentId, req.auth.userId],
+      );
+      if (!assessmentResult.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Avaliacao fisica nao encontrada." });
+      }
+      const patientId = String(assessmentResult.rows[0].patientId || "").trim();
+
+      await client.query("DELETE FROM physical_assessments WHERE id = $1 AND user_id = $2;", [
+        assessmentId,
+        req.auth.userId,
+      ]);
+      if (patientId) {
+        await removeAssessmentWeightFromPatient(client, {
+          userId: req.auth.userId,
+          patientId,
+          assessmentId,
+        });
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      return next(error);
+    } finally {
+      client.release();
+    }
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+});
+
 app.get("/api/patients", async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -1018,6 +1801,26 @@ app.put("/api/patients/:id", async (req, res, next) => {
       : hasCurrentWeightField && Number.isFinite(explicitCurrentWeight) && explicitCurrentWeight > 0
         ? Number(explicitCurrentWeight.toFixed(2))
         : null;
+    const isTryingToRegisterProgress =
+      (hasWeightHistoryField && normalizedWeightHistory.length > 0) ||
+      (!hasWeightHistoryField &&
+        hasCurrentWeightField &&
+        Number.isFinite(explicitCurrentWeight) &&
+        explicitCurrentWeight > 0);
+    if (isTryingToRegisterProgress) {
+      const assessmentCheck = await pool.query(
+        `
+          SELECT 1
+          FROM physical_assessments
+          WHERE patient_id = $1 AND user_id = $2
+          LIMIT 1;
+        `,
+        [req.params.id, req.auth.userId],
+      );
+      if (!assessmentCheck.rowCount) {
+        return res.status(400).json({ error: "Registre uma avaliacao fisica antes de salvar a progressao." });
+      }
+    }
 
     const hasTargetWeightField = Object.prototype.hasOwnProperty.call(req.body, "targetWeight");
     const rawTargetWeight = req.body.targetWeight;

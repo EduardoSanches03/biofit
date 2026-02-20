@@ -376,7 +376,7 @@ to{opacity:1}
 
 .food-edit-actions .ghost{border:1px solid #bfd3cb;background:#edf3f0;color:#224038}
 
-.patients-grid{padding:0 18px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.patients-grid{padding:0 18px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 
 .patients-empty{grid-column:1 / -1;border:1px dashed #b8cbc4;border-radius:14px;padding:22px 16px;text-align:center;background:#edf3f0;color:#39564c}
 
@@ -384,19 +384,152 @@ to{opacity:1}
 
 .patients-empty p{margin:0;font-size:14px}
 
-.patient-card{border:1px solid #c8d8d2;background:#f8fbf9;border-radius:14px;padding:14px;text-align:left;font:inherit;cursor:pointer;display:grid;gap:10px;transition:border-color .12s ease,box-shadow .12s ease,transform .12s ease}
+.patient-card{
+  position:relative;
+  border:1px solid #cfdde7;
+  background:linear-gradient(165deg,#ffffff 0%,#f7fbff 64%,#f4faf8 100%);
+  border-radius:18px;
+  padding:16px 16px 14px;
+  text-align:left;
+  font:inherit;
+  cursor:pointer;
+  display:grid;
+  gap:12px;
+  transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease;
+}
 
-.patient-card:hover{border-color:#86bea9;box-shadow:0 10px 26px #0d362b24;transform:translateY(-1px)}
+.patient-card::before{
+  content:"";
+  position:absolute;
+  left:14px;
+  right:14px;
+  top:0;
+  height:3px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#16a34a,#14b8a6,#22c55e);
+  opacity:.92;
+}
 
-.patient-card-header{display:flex;align-items:center;gap:10px}
+.patient-card:hover{
+  border-color:#7db7d5;
+  box-shadow:0 16px 28px rgba(15,23,42,.14);
+  transform:translateY(-2px);
+}
 
-.patient-card-avatar{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#1fa278,#0f7d60);color:#fff;font-weight:800;display:grid;place-items:center;font-size:14px}
+.patient-card:focus-visible{
+  outline:2px solid rgba(20,132,189,.4);
+  outline-offset:2px;
+}
 
-.patient-card-main strong{display:block;font-size:16px;color:#0b1f19}
+.patient-card-header{display:flex;align-items:flex-start;gap:12px}
 
-.patient-card-main p{margin:2px 0 0;font-size:13px;color:#4c665d}
+.patient-card-avatar{
+  width:46px;
+  height:46px;
+  border-radius:50%;
+  background:linear-gradient(140deg,#16a27f,#0f766e);
+  color:#fff;
+  font-weight:800;
+  display:grid;
+  place-items:center;
+  font-size:15px;
+  flex-shrink:0;
+  box-shadow:0 0 0 4px rgba(20,184,166,.13);
+}
 
-.patient-card-meta{display:grid;gap:4px;font-size:13px;color:#426056}
+.patient-card-main{
+  min-width:0;
+  display:grid;
+  gap:7px;
+}
+
+.patient-card-main strong{
+  display:block;
+  font-family:"Sora",sans-serif;
+  font-size:20px;
+  line-height:1.14;
+  letter-spacing:-.01em;
+  color:#0f172a;
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  overflow:hidden;
+  text-wrap:balance;
+}
+
+.patient-card-main p{margin:6px 0 0;font-size:12px;color:#49657b}
+
+.patient-card-goal{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  justify-self:center;
+  min-height:24px;
+  border:1px solid #d5e2ef;
+  border-radius:999px;
+  padding:0 11px;
+  background:#f4f9ff;
+  color:#2e4f6d;
+  font-weight:700;
+  max-width:min(100%, 240px);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.patient-card-goal.is-empty{
+  border-style:dashed;
+  background:#f8fafc;
+  color:#64748b;
+}
+
+.patient-card-meta{
+  display:grid;
+  gap:6px;
+  font-size:13px;
+  color:#334155;
+  padding-top:8px;
+  border-top:1px solid #e2e8f0;
+}
+
+.patient-card-meta-row{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+
+.patient-card-meta-row svg{
+  width:14px;
+  height:14px;
+  flex-shrink:0;
+  stroke:#5b7289;
+  fill:none;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+
+.patient-card-footer{
+  margin-top:4px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  color:#0f766e;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.02em;
+  text-transform:uppercase;
+}
+
+.patient-card-footer svg{
+  width:14px;
+  height:14px;
+  stroke:currentColor;
+  fill:none;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
 
 .patient-profile-view{border-top:1px solid var(--line);padding:14px 18px 18px;display:grid;gap:14px}
 
@@ -580,26 +713,16 @@ to{opacity:1}
 }
 
 .patients-grid {
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
 }
 
 .patient-card {
-  aspect-ratio: 1 / 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 12px;
+  min-height: 214px;
+  align-content: start;
   overflow: hidden;
 }
 
-.patient-card-main p {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.patient-card-meta span {
+.patient-card-meta-row {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -625,13 +748,21 @@ to{opacity:1}
 
 @media (max-width: 680px) {
   .patients-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 10px;
   }
 
   .patient-card {
-    aspect-ratio: auto;
-    min-height: 170px;
+    min-height: 188px;
+    padding: 14px 14px 12px;
+  }
+
+  .patient-card-main strong {
+    font-size: 18px;
+  }
+
+  .patient-card-goal {
+    max-width: 100%;
   }
 }
 
@@ -1177,8 +1308,21 @@ to{opacity:1}
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.patient-progress-primary-btn {
+  min-width: 280px;
+  height: 48px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  padding: 0 20px;
+}
+
+.patient-progress-head-hint {
+  margin: 8px 0 0;
 }
 
 .patient-metrics-values {
@@ -1347,13 +1491,13 @@ to{opacity:1}
 }
 
 .patient-meal-totals span {
-  border: 1px solid #ccefe2;
+  border: 1px solid #dbe5ef;
   border-radius: 999px;
-  background: #f0fdf8;
+  background: #f8fbfd;
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 700;
-  color: #116149;
+  color: #334155;
 }
 
 .patient-meal-builder {
@@ -1496,6 +1640,16 @@ to{opacity:1}
   gap: 5px;
 }
 
+.patient-meal-group-title-toggle {
+  cursor: pointer;
+}
+
+.patient-meal-group-title-toggle:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.45);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
 .patient-meal-group-title-line {
   display: flex;
   align-items: center;
@@ -1609,11 +1763,90 @@ to{opacity:1}
   padding: 8px;
   display: grid;
   gap: 7px;
+  position: relative;
+}
+
+.patient-meal-item-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transform: translateY(-2px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.patient-meal-item-card:hover .patient-meal-item-card-actions,
+.patient-meal-item-card:focus-within .patient-meal-item-card-actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.patient-item-icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #cfd9e2;
+  border-radius: 8px;
+  background: #f4f7fa;
+  color: #3b556b;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.patient-item-icon-btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.patient-item-icon-btn:hover {
+  background: #eaf0f6;
+  border-color: #bdcad8;
+}
+
+.patient-item-icon-btn.danger-icon {
+  border-color: #f2c8ce;
+  background: #fff;
+  color: #c05560;
+}
+
+.patient-item-icon-btn.danger-icon:hover {
+  background: #fff3f4;
+  border-color: #eab3ba;
+  color: #ad404b;
+}
+
+.patient-meal-item-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 74px;
+}
+
+.patient-meal-item-display strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.patient-meal-item-display span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
 }
 
 .patient-meal-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 128px auto;
+  grid-template-columns: minmax(0, 1fr) 144px auto;
   gap: 8px;
   align-items: center;
 }
@@ -1645,7 +1878,7 @@ to{opacity:1}
 
 .patient-meal-portion-field {
   display: grid;
-  grid-template-columns: 78px auto;
+  grid-template-columns: 88px auto;
   align-items: center;
   gap: 6px;
 }
@@ -1658,6 +1891,22 @@ to{opacity:1}
   font-size: 12px;
   font-weight: 700;
   color: #64748b;
+}
+
+.patient-meal-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.patient-meal-row-actions .patient-action-btn {
+  height: 34px;
+  border-radius: 9px;
+  padding: 0 10px;
+}
+
+.patient-meal-row-actions .danger {
+  height: 34px;
 }
 
 .patient-meal-row .danger {
@@ -1779,13 +2028,48 @@ to{opacity:1}
 }
 
 .patient-item-nutrients span {
-  border: 1px solid var(--group-chip-border);
+  border: 1px solid #dbe5ef;
   border-radius: 999px;
-  background: var(--group-chip-bg);
-  color: var(--group-chip-text);
+  background: #f8fbfd;
+  color: #334155;
   padding: 3px 8px;
   font-size: 11px;
   font-weight: 700;
+}
+
+.patient-item-nutrients span:nth-child(1),
+.patient-meal-totals span:nth-child(1) {
+  background: #edf3ef;
+  border-color: #d5e4dd;
+  color: #081713;
+}
+
+.patient-item-nutrients span:nth-child(2),
+.patient-meal-totals span:nth-child(2) {
+  background: #e6f0ff;
+  border-color: #c9ddff;
+  color: #1164da;
+}
+
+.patient-item-nutrients span:nth-child(3),
+.patient-meal-totals span:nth-child(3) {
+  background: #ffeecf;
+  border-color: #f8dca2;
+  color: #d98000;
+}
+
+.patient-item-nutrients span:nth-child(4),
+.patient-meal-totals span:nth-child(4) {
+  background: #e8edf0;
+  border-color: #d5dde3;
+  color: #334155;
+}
+
+.patient-item-nutrients span:nth-child(5),
+.patient-meal-totals span:nth-child(5) {
+  background: #ece5ff;
+  border-color: #ddd0ff;
+  color: #7b46c5;
 }
 
 .patient-meal-builder-actions {
@@ -2156,15 +2440,15 @@ to{opacity:1}
 
 .patient-progress-bio-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.75fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
   align-items: stretch;
 }
 
 .patient-progress-layout {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -2184,6 +2468,18 @@ to{opacity:1}
   border-bottom: 0;
 }
 
+.patient-progress-summary-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 12px;
+  border-top: 1px solid #e6edf5;
+  background: #f2f7fc;
+}
+
+.patient-progress-summary-actions .patient-action-btn {
+  width: auto;
+}
+
 .patient-progress-summary-card span {
   display: block;
   color: #64748b;
@@ -2200,10 +2496,24 @@ to{opacity:1}
 }
 
 .patient-progress-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px 18px;
+  border-bottom: 1px solid #e4ebf3;
+  padding-bottom: 12px;
+}
+
+.patient-progress-head-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.patient-progress-title-row {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -2235,13 +2545,46 @@ to{opacity:1}
 }
 
 .patient-progress-head h5 {
-  margin-bottom: 6px;
+  margin: 0;
+  font-size: clamp(30px, 3vw, 38px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
 }
 
 .patient-progress-head p {
   margin: 0;
   color: var(--patient-muted);
-  font-size: 14px;
+  font-size: 15px;
+  max-width: 560px;
+}
+
+.patient-progress-kpi-strip {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.patient-progress-kpi-item {
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  background: linear-gradient(165deg, #f8fbff 0%, #f8fafc 100%);
+  padding: 10px 12px;
+}
+
+.patient-progress-kpi-item span {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.patient-progress-kpi-item strong {
+  display: block;
+  margin-top: 3px;
+  font-family: "Sora", sans-serif;
+  font-size: 21px;
+  line-height: 1.1;
+  color: #0f172a;
 }
 
 .patient-progress-badge {
@@ -2257,55 +2600,251 @@ to{opacity:1}
 
 .patient-progress-chart-shell {
   margin-top: 14px;
-  border: 1px solid #e2e8f0;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #f8fffb 0%, #f8fafc 100%);
+  border: 1px solid #dbe5ef;
+  border-radius: 20px;
+  background: linear-gradient(165deg, #f8fffb 0%, #f5f9ff 62%, #f7fbff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 14px 30px rgba(15, 23, 42, 0.08);
   overflow: hidden;
+  padding: 10px 12px 12px;
+}
+
+.patient-progress-chart-legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.patient-progress-chart-legend span {
+  color: #516377;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.patient-progress-chart-legend-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.patient-progress-target-chip {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.patient-progress-target-btn {
+  border: 1px solid #b9d6f3;
+  background: #edf6ff;
+  color: #135b9d;
+  height: 30px;
+  border-radius: 999px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.patient-progress-target-btn:hover {
+  border-color: #94c0ec;
+  background: #deefff;
+  transform: translateY(-1px);
+}
+
+.patient-progress-target-btn.is-alert {
+  border-color: #f4b740;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.patient-progress-dev-btn {
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  height: 30px;
+  padding: 0 12px;
+  background: #fff5f5;
+  color: #b4232f;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.patient-progress-dev-btn:hover {
+  background: #ffe9e9;
+  border-color: #f7b2b2;
+  transform: translateY(-1px);
 }
 
 .patient-progress-chart {
   width: 100%;
-  height: 224px;
+  height: 236px;
   display: block;
 }
 
+.patient-progress-canvas {
+  fill: rgba(255, 255, 255, 0.42);
+}
+
 .patient-progress-axis {
-  stroke: #d6e0eb;
-  stroke-width: 1;
+  stroke: #cad8e6;
+  stroke-width: 1.2;
 }
 
 .patient-progress-grid-line {
-  stroke: #e4ebf3;
+  stroke: #dce6f1;
   stroke-width: 1;
-  stroke-dasharray: 5 7;
+  stroke-dasharray: 4 6;
+}
+
+.patient-progress-y-label {
+  fill: #7890a8;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.patient-progress-target-line {
+  stroke: #f59e0b;
+  stroke-width: 1.8;
+  stroke-dasharray: 8 6;
+}
+
+.patient-progress-target-text {
+  fill: #b45309;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .patient-progress-line {
   fill: none;
-  stroke: #10b981;
-  stroke-width: 4.5;
+  stroke: #14b981;
+  stroke-width: 4.4;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .patient-progress-point {
-  fill: #0ea371;
+  fill: #0ea871;
   stroke: #fff;
   stroke-width: 2.6;
 }
 
+.patient-progress-point.is-manageable {
+  cursor: pointer;
+  transition: fill 0.16s ease, stroke 0.16s ease, stroke-width 0.16s ease;
+}
+
+.patient-progress-point.is-manageable.is-active {
+  fill: #0a9367;
+  stroke: #ecfdf5;
+  stroke-width: 3.2;
+}
+
+.patient-progress-point.is-latest {
+  fill: #0a8f65;
+  stroke-width: 3;
+}
+
+.patient-progress-point-glow {
+  fill: rgba(15, 167, 115, 0.22);
+}
+
+.patient-progress-point-hitbox {
+  fill: transparent;
+  stroke: transparent;
+  cursor: pointer;
+}
+
+.patient-progress-point-hitbox:focus {
+  outline: none;
+}
+
+.patient-progress-point-connector {
+  stroke: #9ab0c6;
+  stroke-width: 1.2;
+  stroke-dasharray: 2.4 3.4;
+}
+
+.patient-progress-point-actions {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #ccd8e5;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.16);
+  pointer-events: auto;
+}
+
+.patient-progress-point-action-btn {
+  flex: 1;
+  border: 0;
+  border-radius: 999px;
+  background: #eaf3ff;
+  color: #1a5a95;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  height: 24px;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.patient-progress-point-action-btn:hover {
+  background: #dbeeff;
+  color: #124e84;
+}
+
+.patient-progress-point-action-btn.is-danger {
+  background: #ffeef0;
+  color: #be123c;
+}
+
+.patient-progress-point-action-btn.is-danger:hover {
+  background: #ffdfe4;
+  color: #9f1239;
+}
+
 .patient-progress-labels {
-  margin-top: 8px;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 5px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 
 .patient-progress-labels span {
+  flex: 1;
+  min-width: 58px;
   text-align: center;
   font-size: 12px;
   color: #64748b;
   text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.patient-progress-labels span.is-latest {
+  color: #0c7d56;
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid #c9f0e2;
+  background: #edfcf5;
+  padding: 2px 8px;
 }
 
 .patient-profile-details.patient-triple-grid {
@@ -2332,6 +2871,202 @@ to{opacity:1}
   width: 100%;
 }
 
+.patient-physical-side-stats {
+  display: grid;
+  gap: 6px;
+}
+
+.patient-physical-side-stats span {
+  font-size: 13px;
+  color: #475569;
+}
+
+.patient-physical-side-stats strong {
+  color: #0f172a;
+}
+
+.patient-physical-modal {
+  width: min(1080px, 100%);
+}
+
+.patient-physical-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.patient-physical-evolution {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.patient-physical-evolution span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #d7e3ef;
+  border-radius: 999px;
+  background: #f8fbfd;
+  color: #334155;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.patient-physical-evolution strong {
+  color: #0f172a;
+}
+
+.patient-physical-table-wrap {
+  overflow-x: auto;
+}
+
+.patient-physical-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 820px;
+}
+
+.patient-physical-table th {
+  text-align: left;
+  font-size: 12px;
+  color: #51657a;
+  border-bottom: 1px solid #dbe5ef;
+  padding: 10px 8px;
+}
+
+.patient-physical-table td {
+  border-bottom: 1px solid #e6edf4;
+  padding: 10px 8px;
+  font-size: 13px;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.patient-physical-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.patient-physical-row-actions .patient-action-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.patient-physical-form-modal {
+  width: min(920px, 100%);
+}
+
+.patient-physical-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.patient-physical-tab {
+  border: 1px solid #d4dde8;
+  border-radius: 999px;
+  height: 32px;
+  padding: 0 12px;
+  background: #f8fafc;
+  color: #334155;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.patient-physical-tab.active {
+  background: #ecfdf5;
+  border-color: #bfe6d6;
+  color: #0f7a54;
+}
+
+.patient-physical-form {
+  display: grid;
+  gap: 12px;
+}
+
+.patient-physical-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.patient-physical-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.patient-physical-grid label span {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.patient-physical-grid input,
+.patient-physical-grid select,
+.patient-physical-grid textarea {
+  border: 1px solid #d2dbe4;
+  border-radius: 10px;
+  background: #fdfefe;
+  font: inherit;
+  color: #0f172a;
+  padding: 9px 10px;
+  outline: none;
+}
+
+.patient-physical-grid textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.patient-physical-grid input:focus,
+.patient-physical-grid select:focus,
+.patient-physical-grid textarea:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15);
+}
+
+.patient-physical-notes {
+  grid-column: 1 / -1;
+}
+
+.patient-physical-result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.patient-physical-result-grid > div {
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  background: #f8fbfd;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.patient-physical-result-grid span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.patient-physical-result-grid strong {
+  color: #0f172a;
+  font-size: 18px;
+  font-family: "Sora", sans-serif;
+}
+
 @media (max-width: 1200px) {
   .patient-overview-grid {
     grid-template-columns: 1fr;
@@ -2343,6 +3078,28 @@ to{opacity:1}
 
   .patient-progress-layout {
     grid-template-columns: 1fr;
+  }
+
+  .patient-progress-head {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .patient-progress-kpi-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .patient-metrics-actions {
+    justify-content: flex-start;
+  }
+
+  .patient-progress-primary-btn {
+    min-width: 0;
+  }
+
+  .patient-physical-grid,
+  .patient-physical-result-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   .patient-profile-details.patient-triple-grid {
@@ -2445,6 +3202,10 @@ to{opacity:1}
     width: 100%;
   }
 
+  .patient-progress-head h5 {
+    font-size: 28px;
+  }
+
   .patient-plan-actions-row {
     width: 100%;
   }
@@ -2473,6 +3234,27 @@ to{opacity:1}
     grid-template-columns: 1fr;
   }
 
+  .patient-meal-item-card-actions {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  .patient-meal-item-display {
+    padding-right: 0;
+    padding-top: 36px;
+  }
+
+  .patient-meal-row-actions {
+    width: 100%;
+  }
+
+  .patient-meal-row-actions .patient-action-btn,
+  .patient-meal-row-actions .danger {
+    flex: 1;
+    width: auto;
+  }
+
   .patient-meal-group-create {
     grid-template-columns: 1fr;
   }
@@ -2496,7 +3278,17 @@ to{opacity:1}
   }
 
   .patient-progress-chart {
-    height: 250px;
+    height: 246px;
+  }
+
+  .patient-progress-chart-legend {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .patient-progress-chart-legend-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .patient-metrics-values {
@@ -2504,13 +3296,28 @@ to{opacity:1}
     gap: 8px;
   }
 
+  .patient-physical-head-actions .patient-action-btn,
+  .patient-physical-row-actions .patient-action-btn {
+    width: 100%;
+  }
+
+  .patient-physical-grid,
+  .patient-physical-result-grid {
+    grid-template-columns: 1fr;
+  }
+
   .patient-progress-summary-card strong {
     font-size: 28px;
   }
 
   .patient-progress-labels {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    row-gap: 6px;
+    justify-content: flex-start;
+  }
+
+  .patient-progress-labels span {
+    flex: 0 0 auto;
+    min-width: 52px;
+    font-size: 11px;
   }
 
   .patient-profile-details.patient-triple-grid {
@@ -2735,12 +3542,59 @@ to{opacity:1}
 .app.app-dark .foods-search-input,
 .app.app-dark .food-form-grid,
 .app.app-dark .foods-table-wrap,
-.app.app-dark .patient-card,
 .app.app-dark .patients-empty,
 .app.app-dark .schedule-row {
   background: #15233a;
   border-color: #2d405b;
   color: #d7e5f8;
+}
+
+.app.app-dark .patient-card {
+  background: linear-gradient(165deg, #12223a 0%, #172b46 66%, #16344a 100%);
+  border-color: #355070;
+  box-shadow: 0 10px 22px rgba(5, 12, 24, 0.34);
+}
+
+.app.app-dark .patient-card::before {
+  background: linear-gradient(90deg, #22c55e, #14b8a6, #2dd4bf);
+}
+
+.app.app-dark .patient-card:hover {
+  border-color: #4d7398;
+  box-shadow: 0 16px 30px rgba(5, 12, 24, 0.44);
+}
+
+.app.app-dark .patient-card-avatar {
+  background: linear-gradient(140deg, #1ba992, #18806d);
+  box-shadow: 0 0 0 4px rgba(32, 201, 151, 0.18);
+}
+
+.app.app-dark .patient-card-main strong {
+  color: #edf4ff;
+}
+
+.app.app-dark .patient-card-goal {
+  background: #1a2f4a;
+  border-color: #3a5877;
+  color: #a8c2de;
+}
+
+.app.app-dark .patient-card-goal.is-empty {
+  background: #1a2b40;
+  border-color: #3b526d;
+  color: #88a3bf;
+}
+
+.app.app-dark .patient-card-meta {
+  border-top-color: #304861;
+}
+
+.app.app-dark .patient-card-meta-row svg {
+  stroke: #86a4c3;
+}
+
+.app.app-dark .patient-card-footer {
+  color: #6be3cd;
 }
 
 .app.app-dark .foods-search-input svg,
@@ -2992,6 +3846,17 @@ to{opacity:1}
   color: #d5e4f7;
 }
 
+.app.app-dark .patient-progress-dev-btn {
+  background: #3a1c28;
+  border-color: #6b2f42;
+  color: #f6b9c5;
+}
+
+.app.app-dark .patient-progress-dev-btn:hover {
+  background: #4a2432;
+  border-color: #7c3750;
+}
+
 .app.app-dark .patient-progress-history-item {
   background: #15253a;
   border-color: #314761;
@@ -3010,12 +3875,244 @@ to{opacity:1}
 }
 
 .app.app-dark .patient-progress-badge,
-.app.app-dark .patient-group-macros span,
-.app.app-dark .patient-item-nutrients span,
-.app.app-dark .patient-meal-totals span {
+.app.app-dark .patient-group-macros span {
   background: #1a2a40;
   border-color: #314761;
   color: #c4d5ea;
+}
+
+.app.app-dark .patient-progress-chart-shell {
+  border-color: #2d4662;
+  background: linear-gradient(165deg, #122133 0%, #14253a 62%, #172b43 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 30px rgba(5, 12, 24, 0.45);
+}
+
+.app.app-dark .patient-progress-head {
+  border-bottom-color: #304861;
+}
+
+.app.app-dark .patient-progress-kpi-item {
+  border-color: #314761;
+  background: linear-gradient(165deg, #15253a 0%, #17293f 100%);
+}
+
+.app.app-dark .patient-progress-kpi-item span {
+  color: #9db4ce;
+}
+
+.app.app-dark .patient-progress-kpi-item strong {
+  color: #e4ecf9;
+}
+
+.app.app-dark .patient-progress-summary-actions {
+  border-top-color: #304861;
+  background: #15253a;
+}
+
+.app.app-dark .patient-progress-chart-legend span {
+  color: #9db4ce;
+}
+
+.app.app-dark .patient-progress-chart-legend-actions .patient-progress-target-btn {
+  border-color: #3c6084;
+  background: #1a3551;
+  color: #a4d0ff;
+}
+
+.app.app-dark .patient-progress-chart-legend-actions .patient-progress-target-btn:hover {
+  border-color: #4b739a;
+  background: #21405f;
+}
+
+.app.app-dark .patient-progress-target-chip {
+  border-color: #835d15;
+  background: #332810;
+  color: #f6d083;
+}
+
+.app.app-dark .patient-progress-chart-legend-actions .patient-progress-target-btn.is-alert {
+  border-color: #b88422;
+  background: #3a2d12;
+  color: #f7d389;
+}
+
+.app.app-dark .patient-progress-canvas {
+  fill: rgba(12, 25, 42, 0.42);
+}
+
+.app.app-dark .patient-progress-axis {
+  stroke: #35506f;
+}
+
+.app.app-dark .patient-progress-grid-line {
+  stroke: #2b435c;
+}
+
+.app.app-dark .patient-progress-y-label {
+  fill: #8fa8c4;
+}
+
+.app.app-dark .patient-progress-target-line {
+  stroke: #f4b740;
+}
+
+.app.app-dark .patient-progress-target-text {
+  fill: #f8cb73;
+}
+
+.app.app-dark .patient-progress-line {
+  stroke: #2dd4a3;
+}
+
+.app.app-dark .patient-progress-point {
+  fill: #24c993;
+  stroke: #112033;
+}
+
+.app.app-dark .patient-progress-point.is-manageable.is-active {
+  fill: #46e5b4;
+  stroke: #183148;
+}
+
+.app.app-dark .patient-progress-point.is-latest {
+  fill: #49e7b6;
+}
+
+.app.app-dark .patient-progress-point-glow {
+  fill: rgba(73, 231, 182, 0.22);
+}
+
+.app.app-dark .patient-progress-point-connector {
+  stroke: #587491;
+}
+
+.app.app-dark .patient-progress-point-actions {
+  border-color: #355171;
+  background: rgba(18, 31, 50, 0.96);
+  box-shadow: 0 12px 24px rgba(2, 8, 16, 0.45);
+}
+
+.app.app-dark .patient-progress-point-action-btn {
+  background: #23496f;
+  color: #c3e0ff;
+}
+
+.app.app-dark .patient-progress-point-action-btn:hover {
+  background: #2c5b89;
+  color: #e2f0ff;
+}
+
+.app.app-dark .patient-progress-point-action-btn.is-danger {
+  background: #4f1f2e;
+  color: #ffb8ca;
+}
+
+.app.app-dark .patient-progress-point-action-btn.is-danger:hover {
+  background: #642639;
+  color: #ffd4df;
+}
+
+.app.app-dark .patient-progress-labels span {
+  color: #9db4ce;
+}
+
+.app.app-dark .patient-progress-labels span.is-latest {
+  color: #89ebc8;
+  border-color: #2a6950;
+  background: #18392d;
+}
+
+.app.app-dark .patient-physical-side-stats span {
+  color: #9db4ce;
+}
+
+.app.app-dark .patient-physical-side-stats strong {
+  color: #e4ecf9;
+}
+
+.app.app-dark .patient-physical-evolution span {
+  background: #1a2a40;
+  border-color: #314761;
+  color: #c4d5ea;
+}
+
+.app.app-dark .patient-physical-evolution strong {
+  color: #e4ecf9;
+}
+
+.app.app-dark .patient-physical-table th {
+  color: #9db4ce;
+  border-color: #314761;
+}
+
+.app.app-dark .patient-physical-table td {
+  color: #dbe7f7;
+  border-color: #2a3f58;
+}
+
+.app.app-dark .patient-physical-tab {
+  background: #17263c;
+  border-color: #334b68;
+  color: #d5e4f7;
+}
+
+.app.app-dark .patient-physical-tab.active {
+  background: #19382f;
+  border-color: #2f6d58;
+  color: #92e6c7;
+}
+
+.app.app-dark .patient-physical-grid label span,
+.app.app-dark .patient-physical-result-grid span {
+  color: #9db4ce;
+}
+
+.app.app-dark .patient-physical-grid input,
+.app.app-dark .patient-physical-grid select,
+.app.app-dark .patient-physical-grid textarea {
+  background: #111e31;
+  border-color: #30445f;
+  color: #e4ecf9;
+}
+
+.app.app-dark .patient-physical-result-grid > div {
+  background: #15253a;
+  border-color: #314761;
+}
+
+.app.app-dark .patient-physical-result-grid strong {
+  color: #e4ecf9;
+}
+
+.app.app-dark .patient-item-icon-btn {
+  background: #1a2a40;
+  border-color: #334b68;
+  color: #c4d5ea;
+}
+
+.app.app-dark .patient-item-icon-btn:hover {
+  background: #20324c;
+  border-color: #405b7c;
+}
+
+.app.app-dark .patient-item-icon-btn.danger-icon {
+  background: #2b2130;
+  border-color: #604059;
+  color: #f1b8be;
+}
+
+.app.app-dark .patient-item-icon-btn.danger-icon:hover {
+  background: #3a2732;
+  border-color: #76505f;
+  color: #ffd4d7;
+}
+
+.app.app-dark .patient-meal-item-display strong {
+  color: #e4ecf9;
+}
+
+.app.app-dark .patient-meal-item-display span {
+  color: #b6c7dd;
 }
 
 .app.app-dark .patient-photo-upload-btn {
