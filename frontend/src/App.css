@@ -207,6 +207,7 @@ h1,h2,h3{margin:0;font-family:Sora,sans-serif}
 .time{color:#096d53;font-size:22px}
 
 .new-btn{margin:0 14px 14px;border:1px solid #0b7a5d;background:#0b7a5d;color:#fff;border-radius:12px;height:42px;font-weight:700;cursor:pointer}
+.new-btn:disabled{opacity:.7;cursor:not-allowed}
 
 .consultation-form{display:grid;gap:8px;padding:0 14px 14px}
 
@@ -215,6 +216,7 @@ h1,h2,h3{margin:0;font-family:Sora,sans-serif}
 .consultation-form input,.consultation-form select,.consultation-form button{font:inherit;border-radius:10px;border:1px solid #cad9d3;padding:10px 11px}
 
 .consultation-form button{border:0;background:#136f56;color:#fff;font-weight:700}
+.consultation-form button:disabled{opacity:.72;cursor:not-allowed}
 
 .schedule-sheet-backdrop{position:absolute;top:0;right:0;bottom:0;left:0;background:#08141070;display:flex;align-items:flex-end;justify-content:center;z-index:12;animation:fade-in .16s ease-out}
 
@@ -263,6 +265,7 @@ to{opacity:1}
 .form-grid input,.form-grid select{background:#fdfefd}
 
 .form-grid button,.row-actions button{border:0;background:#137f61;color:#fff;cursor:pointer;font-weight:700}
+.form-grid button:disabled,.row-actions button:disabled{opacity:.72;cursor:not-allowed}
 
 .foods-management{background:#f6f8f7}
 
@@ -275,6 +278,7 @@ to{opacity:1}
 .foods-search-input input{border:0;background:transparent;width:100%;outline:none;font:inherit;color:#17362e}
 
 .foods-primary-btn{height:52px;border:0;border-radius:14px;padding:0 18px;font:inherit;font-weight:700;color:#fff;background:linear-gradient(110deg,#0f7f60,#1ca178);cursor:pointer;white-space:nowrap}
+.foods-primary-btn:disabled{opacity:.72;cursor:not-allowed}
 
 .foods-filters{padding:6px 18px 14px;display:flex;flex-wrap:wrap;gap:10px}
 
@@ -1119,6 +1123,12 @@ to{opacity:1}
 
 .patient-btn:hover {
   transform: translateY(-1px);
+}
+
+.patient-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .patient-btn-primary {
@@ -2598,6 +2608,38 @@ to{opacity:1}
   white-space: nowrap;
 }
 
+.patient-progress-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #cdd8e5;
+  border-radius: 999px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.patient-progress-mode-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: transparent;
+  color: #49607a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.patient-progress-mode-btn:hover {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.patient-progress-mode-btn.active {
+  background: #16365e;
+  color: #eff8ff;
+}
+
 .patient-progress-chart-shell {
   margin-top: 14px;
   border: 1px solid #dbe5ef;
@@ -2611,7 +2653,7 @@ to{opacity:1}
 .patient-progress-chart-legend {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   margin-bottom: 8px;
 }
@@ -2620,6 +2662,47 @@ to{opacity:1}
   color: #516377;
   font-size: 12px;
   font-weight: 600;
+}
+
+.patient-progress-chart-legend-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.patient-progress-series-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.patient-progress-series-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #516377;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.patient-progress-series-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 0;
+  border-top: 3px solid #31a7ff;
+  border-radius: 999px;
+}
+
+.patient-progress-series-swatch.is-measure {
+  border-top-style: solid;
+  border-top-color: #31a7ff;
+}
+
+.patient-progress-series-swatch.is-skinfold {
+  border-top-style: dashed;
+  border-top-color: #f6c453;
 }
 
 .patient-progress-chart-legend-actions {
@@ -2687,7 +2770,7 @@ to{opacity:1}
 
 .patient-progress-chart {
   width: 100%;
-  height: 236px;
+  height: 300px;
   display: block;
 }
 
@@ -2712,6 +2795,20 @@ to{opacity:1}
   font-weight: 600;
 }
 
+.patient-progress-y-label-right {
+  fill: #6f8fb7;
+}
+
+.patient-progress-axis-caption {
+  fill: #7e97b0;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.patient-progress-axis-caption.is-right {
+  fill: #8e80a9;
+}
+
 .patient-progress-target-line {
   stroke: #f59e0b;
   stroke-width: 1.8;
@@ -2730,6 +2827,16 @@ to{opacity:1}
   stroke-width: 4.4;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.patient-progress-line-measure {
+  stroke: #31a7ff;
+}
+
+.patient-progress-line-skinfold {
+  stroke: #f6c453;
+  stroke-width: 3.4;
+  stroke-dasharray: 7 5;
 }
 
 .patient-progress-point {
@@ -2754,6 +2861,16 @@ to{opacity:1}
   stroke-width: 3;
 }
 
+.patient-progress-point-measure {
+  fill: #31a7ff;
+  stroke: #e2f2ff;
+}
+
+.patient-progress-point-skinfold {
+  fill: #f6c453;
+  stroke: #fff6dd;
+}
+
 .patient-progress-point-glow {
   fill: rgba(15, 167, 115, 0.22);
 }
@@ -2766,6 +2883,12 @@ to{opacity:1}
 
 .patient-progress-point-hitbox:focus {
   outline: none;
+}
+
+.patient-progress-empty-text {
+  fill: #8aa2ba;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .patient-progress-point-connector {
@@ -3278,7 +3401,7 @@ to{opacity:1}
   }
 
   .patient-progress-chart {
-    height: 246px;
+    height: 280px;
   }
 
   .patient-progress-chart-legend {
@@ -3881,10 +4004,34 @@ to{opacity:1}
   color: #c4d5ea;
 }
 
+.app.app-dark .patient-progress-mode-toggle {
+  border-color: #375271;
+  background: rgba(13, 28, 47, 0.78);
+}
+
+.app.app-dark .patient-progress-mode-btn {
+  color: #aac3de;
+}
+
+.app.app-dark .patient-progress-mode-btn:hover {
+  background: rgba(62, 91, 123, 0.42);
+}
+
+.app.app-dark .patient-progress-mode-btn.active {
+  background: #2c5f8e;
+  color: #e8f3ff;
+}
+
+.app.app-dark .patient-profile-panel.patient-progress-spotlight {
+  border: 1px solid #2d4662;
+  background: linear-gradient(180deg, #102037 0%, #13263f 100%);
+  box-shadow: 0 14px 30px rgba(5, 12, 24, 0.45);
+}
+
 .app.app-dark .patient-progress-chart-shell {
-  border-color: #2d4662;
-  background: linear-gradient(165deg, #122133 0%, #14253a 62%, #172b43 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 14px 30px rgba(5, 12, 24, 0.45);
+  border-color: #37597c;
+  background: linear-gradient(165deg, #102139 0%, #112742 62%, #12314d 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 14px 30px rgba(5, 12, 24, 0.5);
 }
 
 .app.app-dark .patient-progress-head {
@@ -3910,7 +4057,19 @@ to{opacity:1}
 }
 
 .app.app-dark .patient-progress-chart-legend span {
-  color: #9db4ce;
+  color: #b5cae1;
+}
+
+.app.app-dark .patient-progress-series-item {
+  color: #b8cee4;
+}
+
+.app.app-dark .patient-progress-series-swatch.is-measure {
+  border-top-color: #5fb8ff;
+}
+
+.app.app-dark .patient-progress-series-swatch.is-skinfold {
+  border-top-color: #ffd273;
 }
 
 .app.app-dark .patient-progress-chart-legend-actions .patient-progress-target-btn {
@@ -3925,9 +4084,9 @@ to{opacity:1}
 }
 
 .app.app-dark .patient-progress-target-chip {
-  border-color: #835d15;
-  background: #332810;
-  color: #f6d083;
+  border-color: #966d1a;
+  background: #3a2d12;
+  color: #ffdc92;
 }
 
 .app.app-dark .patient-progress-chart-legend-actions .patient-progress-target-btn.is-alert {
@@ -3937,53 +4096,83 @@ to{opacity:1}
 }
 
 .app.app-dark .patient-progress-canvas {
-  fill: rgba(12, 25, 42, 0.42);
+  fill: rgba(7, 18, 34, 0.62);
 }
 
 .app.app-dark .patient-progress-axis {
-  stroke: #35506f;
+  stroke: #416a8f;
 }
 
 .app.app-dark .patient-progress-grid-line {
-  stroke: #2b435c;
+  stroke: #315578;
 }
 
 .app.app-dark .patient-progress-y-label {
-  fill: #8fa8c4;
+  fill: #b2c8de;
+}
+
+.app.app-dark .patient-progress-y-label-right {
+  fill: #90b4da;
+}
+
+.app.app-dark .patient-progress-axis-caption {
+  fill: #9bb6d3;
+}
+
+.app.app-dark .patient-progress-axis-caption.is-right {
+  fill: #c3b6dc;
 }
 
 .app.app-dark .patient-progress-target-line {
-  stroke: #f4b740;
+  stroke: #ffc34d;
 }
 
 .app.app-dark .patient-progress-target-text {
-  fill: #f8cb73;
+  fill: #ffe0a1;
 }
 
 .app.app-dark .patient-progress-line {
-  stroke: #2dd4a3;
+  stroke: #35eac6;
+}
+
+.app.app-dark .patient-progress-line-measure {
+  stroke: #5fb8ff;
+}
+
+.app.app-dark .patient-progress-line-skinfold {
+  stroke: #ffd273;
 }
 
 .app.app-dark .patient-progress-point {
-  fill: #24c993;
-  stroke: #112033;
+  fill: #2fe0c0;
+  stroke: #0e2238;
 }
 
 .app.app-dark .patient-progress-point.is-manageable.is-active {
-  fill: #46e5b4;
-  stroke: #183148;
+  fill: #62f5da;
+  stroke: #174263;
 }
 
 .app.app-dark .patient-progress-point.is-latest {
-  fill: #49e7b6;
+  fill: #6ff7e0;
+}
+
+.app.app-dark .patient-progress-point-measure {
+  fill: #5fb8ff;
+  stroke: #153755;
+}
+
+.app.app-dark .patient-progress-point-skinfold {
+  fill: #ffd273;
+  stroke: #4b3a1e;
 }
 
 .app.app-dark .patient-progress-point-glow {
-  fill: rgba(73, 231, 182, 0.22);
+  fill: rgba(53, 234, 198, 0.3);
 }
 
 .app.app-dark .patient-progress-point-connector {
-  stroke: #587491;
+  stroke: #7095b6;
 }
 
 .app.app-dark .patient-progress-point-actions {
@@ -4013,13 +4202,17 @@ to{opacity:1}
 }
 
 .app.app-dark .patient-progress-labels span {
-  color: #9db4ce;
+  color: #b2c7de;
 }
 
 .app.app-dark .patient-progress-labels span.is-latest {
-  color: #89ebc8;
-  border-color: #2a6950;
-  background: #18392d;
+  color: #aef5de;
+  border-color: #357d64;
+  background: #1d4638;
+}
+
+.app.app-dark .patient-progress-empty-text {
+  fill: #9eb8d5;
 }
 
 .app.app-dark .patient-physical-side-stats span {

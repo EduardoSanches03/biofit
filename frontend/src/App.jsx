@@ -671,6 +671,39 @@ function buildProgressLabelsFromHistory(weightHistory) {
   });
 }
 
+function buildProgressLabelsFromTimeline(entries) {
+  if (!entries.length) return [];
+  const dayFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" });
+  const timeFormatter = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const dayCounts = new Map();
+  const dayTimeCounts = new Map();
+
+  entries.forEach((entry) => {
+    const recordedAt = new Date(entry?.recordedAt || "");
+    if (Number.isNaN(recordedAt.getTime())) return;
+    const dayKey = formatDateKey(recordedAt);
+    dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
+  });
+
+  return entries.map((entry) => {
+    const recordedAt = new Date(entry?.recordedAt || "");
+    if (Number.isNaN(recordedAt.getTime())) return "";
+    const dayKey = formatDateKey(recordedAt);
+    const dayLabel = dayFormatter.format(recordedAt);
+    if ((dayCounts.get(dayKey) || 0) <= 1) return dayLabel;
+
+    const timeLabel = timeFormatter.format(recordedAt);
+    const dayTimeKey = `${dayKey}-${timeLabel}`;
+    const duplicateCount = (dayTimeCounts.get(dayTimeKey) || 0) + 1;
+    dayTimeCounts.set(dayTimeKey, duplicateCount);
+
+    if (duplicateCount > 1) {
+      return `${dayLabel} ${timeLabel} (${duplicateCount})`;
+    }
+    return `${dayLabel} ${timeLabel}`;
+  });
+}
+
 function normalizePatientTargetHistory(rawHistory) {
   if (!Array.isArray(rawHistory)) return [];
   return rawHistory
@@ -848,6 +881,13 @@ export default function App() {
   const [editingFoodId, setEditingFoodId] = useState("");
   const [editFoodForm, setEditFoodForm] = useState(emptyFood);
   const [foodEditSubmitting, setFoodEditSubmitting] = useState(false);
+  const [patientSubmitting, setPatientSubmitting] = useState(false);
+  const [foodSubmitting, setFoodSubmitting] = useState(false);
+  const [consultationSubmitting, setConsultationSubmitting] = useState(false);
+  const [weightEntrySubmitting, setWeightEntrySubmitting] = useState(false);
+  const [targetRefreshSubmitting, setTargetRefreshSubmitting] = useState(false);
+  const [mealPlanSubmitting, setMealPlanSubmitting] = useState(false);
+  const [patientRemoving, setPatientRemoving] = useState(false);
   const [loading, setLoading] = useState(Boolean(initialSession));
   const [error, setError] = useState("");
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
@@ -856,6 +896,7 @@ export default function App() {
   const foodImportInputRef = useRef(null);
   const patientPhotosRef = useRef({});
   const settingsMenuRef = useRef(null);
+  const progressChartRef = useRef(null);
   const alertedTargetMilestoneKeyRef = useRef("");
   const isDevelopmentMode = import.meta.env.DEV;
   const [foodImportFeedback, setFoodImportFeedback] = useState(null);
@@ -865,6 +906,8 @@ export default function App() {
   const [showConsultationForm, setShowConsultationForm] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => formatDateKey(new Date()));
   const [selectedMonth, setSelectedMonth] = useState(() => formatDateKey(new Date()).slice(0, 7));
+  const [progressChartViewportRatio, setProgressChartViewportRatio] = useState(780 / 300);
+  const [progressChartMode, setProgressChartMode] = useState("weight");
   const [consultationForm, setConsultationForm] = useState(() => ({
     patientId: "",
     type: "Retorno",
@@ -1045,10 +1088,68 @@ export default function App() {
     }
     return buildProgressLabels(progressSeries.length);
   }, [progressSeries.length, selectedPatientWeightHistory]);
-  const progressChartWidth = 660;
-  const progressChartHeight = 260;
-  const progressChartPaddingX = 38;
-  const progressChartPaddingY = 24;
+  const progressMeasurementEntries = useMemo(() => {
+    if (!selectedPatientPhysicalAssessments.length) return [];
+    return selectedPatientPhysicalAssessments
+      .map((assessment) => {
+        const recordedAt = new Date(assessment?.date || assessment?.createdAt || "");
+        if (Number.isNaN(recordedAt.getTime())) return null;
+
+        const circumferenceEntries = Array.isArray(assessment?.circumferences) ? assessment.circumferences : [];
+        const skinfoldEntries = Array.isArray(assessment?.skinfolds) ? assessment.skinfolds : [];
+
+        const waistEntry = circumferenceEntries.find((entry) => String(entry?.type || "").trim() === "cintura");
+        const waistValue = Number(waistEntry?.valueCm);
+
+        const circumferenceValues = circumferenceEntries
+          .map((entry) => Number(entry?.valueCm))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const skinfoldValues = skinfoldEntries
+          .map((entry) => Number(entry?.valueMm))
+          .filter((value) => Number.isFinite(value) && value > 0);
+
+        const measurementValue =
+          Number.isFinite(waistValue) && waistValue > 0
+            ? Number(waistValue.toFixed(2))
+            : circumferenceValues.length
+              ? Number(
+                  (circumferenceValues.reduce((sum, value) => sum + value, 0) / circumferenceValues.length).toFixed(
+                    2,
+                  ),
+                )
+              : null;
+
+        if (measurementValue === null || !skinfoldValues.length) return null;
+
+        const skinfoldTotal = Number(skinfoldValues.reduce((sum, value) => sum + value, 0).toFixed(2));
+        if (!Number.isFinite(skinfoldTotal) || skinfoldTotal <= 0) return null;
+
+        return {
+          id: String(assessment?.id || `${recordedAt.toISOString()}-${measurementValue}-${skinfoldTotal}`),
+          recordedAt: recordedAt.toISOString(),
+          measurementValue,
+          skinfoldTotal,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+  }, [selectedPatientPhysicalAssessments]);
+  const progressMeasurementSeries = useMemo(
+    () => progressMeasurementEntries.map((entry) => entry.measurementValue),
+    [progressMeasurementEntries],
+  );
+  const progressSkinfoldSeries = useMemo(
+    () => progressMeasurementEntries.map((entry) => entry.skinfoldTotal),
+    [progressMeasurementEntries],
+  );
+  const progressMeasurementLabels = useMemo(
+    () => buildProgressLabelsFromTimeline(progressMeasurementEntries),
+    [progressMeasurementEntries],
+  );
+  const progressChartHeight = 320;
+  const progressChartWidth = Math.max(520, Math.round(progressChartViewportRatio * progressChartHeight));
+  const progressChartPaddingX = 42;
+  const progressChartPaddingY = 30;
   const progressChartLeftX = progressChartPaddingX;
   const progressChartRightX = progressChartWidth - progressChartPaddingX;
   const progressChartBottomY = progressChartHeight - progressChartPaddingY;
@@ -1068,7 +1169,7 @@ export default function App() {
       innerWidth: progressChartWidth - progressChartPaddingX * 2,
       innerHeight: progressChartHeight - progressChartPaddingY * 2,
     };
-  }, [progressSeries]);
+  }, [progressChartHeight, progressChartPaddingX, progressChartPaddingY, progressChartWidth, progressSeries]);
   const progressPath = useMemo(() => {
     if (!progressScale) return "";
     return buildSparklinePath(progressSeries, progressChartWidth, progressChartHeight, {
@@ -1205,10 +1306,157 @@ export default function App() {
       };
     });
   }, [progressChartPaddingX, progressChartPaddingY, progressScale, progressSeries, selectedPatientWeightHistory]);
+  const progressMeasurementScale = useMemo(() => {
+    if (!progressMeasurementSeries.length) return null;
+    const rawMin = Math.min(...progressMeasurementSeries);
+    const rawMax = Math.max(...progressMeasurementSeries);
+    const rawSpan = rawMax - rawMin;
+    const breathingSpace = Math.max(0.8, rawSpan * 0.2);
+    const minValue = Math.max(0, Number((rawMin - breathingSpace).toFixed(2)));
+    const maxValue = Number((rawMax + breathingSpace).toFixed(2));
+    const span = maxValue - minValue || 1;
+    return {
+      minValue,
+      maxValue,
+      span,
+      innerWidth: progressChartWidth - progressChartPaddingX * 2,
+      innerHeight: progressChartHeight - progressChartPaddingY * 2,
+    };
+  }, [progressChartHeight, progressChartPaddingX, progressChartPaddingY, progressChartWidth, progressMeasurementSeries]);
+  const progressSkinfoldScale = useMemo(() => {
+    if (!progressSkinfoldSeries.length) return null;
+    const rawMin = Math.min(...progressSkinfoldSeries);
+    const rawMax = Math.max(...progressSkinfoldSeries);
+    const rawSpan = rawMax - rawMin;
+    const breathingSpace = Math.max(2, rawSpan * 0.2);
+    const minValue = Math.max(0, Number((rawMin - breathingSpace).toFixed(2)));
+    const maxValue = Number((rawMax + breathingSpace).toFixed(2));
+    const span = maxValue - minValue || 1;
+    return {
+      minValue,
+      maxValue,
+      span,
+      innerWidth: progressChartWidth - progressChartPaddingX * 2,
+      innerHeight: progressChartHeight - progressChartPaddingY * 2,
+    };
+  }, [progressChartHeight, progressChartPaddingX, progressChartPaddingY, progressChartWidth, progressSkinfoldSeries]);
+  const progressMeasurementPath = useMemo(() => {
+    if (!progressMeasurementScale) return "";
+    return buildSparklinePath(progressMeasurementSeries, progressChartWidth, progressChartHeight, {
+      paddingX: progressChartPaddingX,
+      paddingY: progressChartPaddingY,
+      minValue: progressMeasurementScale.minValue,
+      maxValue: progressMeasurementScale.maxValue,
+    });
+  }, [
+    progressChartHeight,
+    progressChartPaddingX,
+    progressChartPaddingY,
+    progressChartWidth,
+    progressMeasurementScale,
+    progressMeasurementSeries,
+  ]);
+  const progressSkinfoldPath = useMemo(() => {
+    if (!progressSkinfoldScale) return "";
+    return buildSparklinePath(progressSkinfoldSeries, progressChartWidth, progressChartHeight, {
+      paddingX: progressChartPaddingX,
+      paddingY: progressChartPaddingY,
+      minValue: progressSkinfoldScale.minValue,
+      maxValue: progressSkinfoldScale.maxValue,
+    });
+  }, [
+    progressChartHeight,
+    progressChartPaddingX,
+    progressChartPaddingY,
+    progressChartWidth,
+    progressSkinfoldScale,
+    progressSkinfoldSeries,
+  ]);
+  const progressMeasurementYAxisTicks = useMemo(() => {
+    if (!progressMeasurementScale) return [];
+    return [0, 0.5, 1].map((ratio) => ({
+      ratio,
+      value: Number((progressMeasurementScale.maxValue - progressMeasurementScale.span * ratio).toFixed(1)),
+      y: progressChartPaddingY + progressMeasurementScale.innerHeight * ratio,
+    }));
+  }, [progressChartPaddingY, progressMeasurementScale]);
+  const progressSkinfoldYAxisTicks = useMemo(() => {
+    if (!progressSkinfoldScale) return [];
+    return [0, 0.5, 1].map((ratio) => ({
+      ratio,
+      value: Number((progressSkinfoldScale.maxValue - progressSkinfoldScale.span * ratio).toFixed(1)),
+      y: progressChartPaddingY + progressSkinfoldScale.innerHeight * ratio,
+    }));
+  }, [progressChartPaddingY, progressSkinfoldScale]);
+  const progressMeasurementPoints = useMemo(() => {
+    if (!progressMeasurementEntries.length || !progressMeasurementScale || !progressSkinfoldScale) return [];
+    const xStep = progressMeasurementEntries.length > 1 ? progressMeasurementScale.innerWidth / (progressMeasurementEntries.length - 1) : 0;
+    return progressMeasurementEntries.map((entry, index) => ({
+      key: entry.id || `assessment-point-${index}`,
+      x: progressChartPaddingX + index * xStep,
+      measurementY:
+        progressChartPaddingY +
+        ((progressMeasurementScale.maxValue - entry.measurementValue) / progressMeasurementScale.span) *
+          progressMeasurementScale.innerHeight,
+      skinfoldY:
+        progressChartPaddingY +
+        ((progressSkinfoldScale.maxValue - entry.skinfoldTotal) / progressSkinfoldScale.span) *
+          progressSkinfoldScale.innerHeight,
+      measurementValue: entry.measurementValue,
+      skinfoldTotal: entry.skinfoldTotal,
+    }));
+  }, [
+    progressChartPaddingX,
+    progressChartPaddingY,
+    progressMeasurementEntries,
+    progressMeasurementScale,
+    progressSkinfoldScale,
+  ]);
+  const progressMeasurementCurrent =
+    progressMeasurementSeries.length > 0 ? progressMeasurementSeries[progressMeasurementSeries.length - 1] : null;
+  const progressMeasurementStart =
+    progressMeasurementSeries.length > 0 ? progressMeasurementSeries[0] : progressMeasurementCurrent;
+  const progressMeasurementDelta =
+    progressMeasurementCurrent !== null && progressMeasurementStart !== null
+      ? Number((progressMeasurementCurrent - progressMeasurementStart).toFixed(1))
+      : null;
+  const progressSkinfoldCurrent =
+    progressSkinfoldSeries.length > 0 ? progressSkinfoldSeries[progressSkinfoldSeries.length - 1] : null;
+  const progressSkinfoldStart =
+    progressSkinfoldSeries.length > 0 ? progressSkinfoldSeries[0] : progressSkinfoldCurrent;
+  const progressSkinfoldDelta =
+    progressSkinfoldCurrent !== null && progressSkinfoldStart !== null
+      ? Number((progressSkinfoldCurrent - progressSkinfoldStart).toFixed(1))
+      : null;
+  const isWeightProgressChart = progressChartMode === "weight";
+  const progressBadgeLabel = isWeightProgressChart
+    ? progressDelta !== null
+      ? progressDelta <= 0
+        ? "Evolucao positiva"
+        : "Atencao"
+      : "Sem dados"
+    : progressMeasurementDelta !== null || progressSkinfoldDelta !== null
+      ? progressMeasurementDelta !== null && progressMeasurementDelta <= 0
+        ? "Medidas em queda"
+        : progressSkinfoldDelta !== null && progressSkinfoldDelta <= 0
+          ? "Dobras em queda"
+          : "Acompanhamento"
+      : "Sem dados";
+  const progressPrimaryActionLabel = isWeightProgressChart
+    ? "Registrar progressão de pesagem"
+    : "Nova avaliação física";
+  const progressPrimaryActionDisabled = isWeightProgressChart ? !canRegisterWeightProgress : !selectedPatient?.id;
   useEffect(() => {
     setActiveProgressPointId("");
     setEditingWeightEntryId("");
+    setProgressChartMode("weight");
   }, [routePatientId]);
+
+  useEffect(() => {
+    if (isWeightProgressChart) return;
+    setActiveProgressPointId("");
+    setEditingWeightEntryId("");
+  }, [isWeightProgressChart]);
 
   const mealPlanTotals = useMemo(() => {
     return selectedMealPlanItems.reduce(
@@ -1309,8 +1557,11 @@ export default function App() {
     }).format(new Date(`${selectedDate}T00:00:00`));
   }, [selectedDate]);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(options = {}) {
+    const { showGlobalLoader = true } = options;
+    if (showGlobalLoader) {
+      setLoading(true);
+    }
     setError("");
     try {
       const [summaryData, patientsData, foodsData, plansData, physicalAssessmentsData] = await Promise.all([
@@ -1370,7 +1621,9 @@ export default function App() {
       }
       setError(requestError.message);
     } finally {
-      setLoading(false);
+      if (showGlobalLoader) {
+        setLoading(false);
+      }
     }
   }
 
@@ -1491,7 +1744,49 @@ export default function App() {
       setShowPhysicalAssessmentFormModal(false);
       setShowMealPlanHistoryModal(false);
     }
-  }, [isPatientProfileRoute]);
+  }, [isPatientProfileRoute, loading, selectedPatient?.id]);
+
+  useEffect(() => {
+    const chartElement = progressChartRef.current;
+    if (!isPatientProfileRoute || !chartElement) return undefined;
+
+    function updateRatio(width, height) {
+      const nextWidth = Number(width || 0);
+      const nextHeight = Number(height || 0);
+      if (!Number.isFinite(nextWidth) || !Number.isFinite(nextHeight) || nextWidth <= 0 || nextHeight <= 0) {
+        return;
+      }
+      const nextRatio = nextWidth / nextHeight;
+      setProgressChartViewportRatio((prev) => (Math.abs(prev - nextRatio) < 0.01 ? prev : nextRatio));
+    }
+
+    function measureNow() {
+      const rect = chartElement.getBoundingClientRect();
+      updateRatio(rect.width, rect.height);
+    }
+
+    measureNow();
+    const frameId = window.requestAnimationFrame(measureNow);
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        updateRatio(entry.contentRect.width, entry.contentRect.height);
+      });
+      observer.observe(chartElement);
+      return () => {
+        window.cancelAnimationFrame(frameId);
+        observer.disconnect();
+      };
+    }
+
+    window.addEventListener("resize", measureNow);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", measureNow);
+    };
+  }, [isPatientProfileRoute, selectedPatient?.id]);
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme);
@@ -1615,12 +1910,20 @@ export default function App() {
     setEditingFoodId("");
     setEditFoodForm(emptyFood);
     setFoodEditSubmitting(false);
+    setPatientSubmitting(false);
+    setFoodSubmitting(false);
+    setConsultationSubmitting(false);
+    setWeightEntrySubmitting(false);
+    setTargetRefreshSubmitting(false);
+    setMealPlanSubmitting(false);
+    setPatientRemoving(false);
     navigate("/", { replace: true });
   }
 
   async function handlePatientSubmit(event) {
     event.preventDefault();
     setError("");
+    setPatientSubmitting(true);
     try {
       await api.createPatient({
         name: patientForm.name,
@@ -1630,9 +1933,11 @@ export default function App() {
         email: patientForm.email,
       });
       setPatientForm(emptyPatient);
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setPatientSubmitting(false);
     }
   }
 
@@ -1640,6 +1945,7 @@ export default function App() {
     event.preventDefault();
     setError("");
     setFoodImportFeedback(null);
+    setFoodSubmitting(true);
     try {
       await api.createFood({
         name: foodForm.name.trim(),
@@ -1653,9 +1959,11 @@ export default function App() {
       });
       setFoodForm(emptyFood);
       setShowFoodForm(false);
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setFoodSubmitting(false);
     }
   }
 
@@ -1772,7 +2080,7 @@ export default function App() {
       }
 
       if (successCount > 0) {
-        await loadData();
+        await loadData({ showGlobalLoader: false });
       }
 
       if (rowErrors.length > 0) {
@@ -1910,6 +2218,7 @@ export default function App() {
       hasReachedTargetValue(nextCurrentWeight, progressTarget, baselineWeight);
 
     setError("");
+    setWeightEntrySubmitting(true);
     try {
       await api.updatePatient(selectedPatient.id, {
         name: selectedPatient.name,
@@ -1921,12 +2230,14 @@ export default function App() {
         weightHistory: nextHistory,
       });
       closeWeightEntryModal();
-      await loadData();
+      await loadData({ showGlobalLoader: false });
       if (isTargetReachedNow && !wasTargetReached) {
         openTargetRefreshModal();
       }
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setWeightEntrySubmitting(false);
     }
   }
 
@@ -1960,7 +2271,7 @@ export default function App() {
         weightHistory: nextHistory,
       });
       setActiveProgressPointId("");
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -1988,6 +2299,7 @@ export default function App() {
     ];
 
     setError("");
+    setTargetRefreshSubmitting(true);
     try {
       await api.updatePatient(selectedPatient.id, {
         name: selectedPatient.name,
@@ -2000,9 +2312,11 @@ export default function App() {
       });
       setShowTargetRefreshModal(false);
       setTargetRefreshValue("");
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setTargetRefreshSubmitting(false);
     }
   }
 
@@ -2027,7 +2341,7 @@ export default function App() {
       setShowWeightEntryModal(false);
       setShowProgressHistoryModal(false);
       setShowTargetRefreshModal(false);
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -2229,7 +2543,7 @@ export default function App() {
       } else {
         await api.createPhysicalAssessment(payload);
       }
-      await loadData();
+      await loadData({ showGlobalLoader: false });
       closePhysicalAssessmentForm();
     } catch (requestError) {
       setError(requestError.message);
@@ -2249,7 +2563,7 @@ export default function App() {
       if (editingPhysicalAssessmentId === assessmentId) {
         closePhysicalAssessmentForm();
       }
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -2276,6 +2590,7 @@ export default function App() {
       return;
     }
 
+    setConsultationSubmitting(true);
     try {
       await api.createConsultation({
         patientId: consultationForm.patientId || undefined,
@@ -2292,14 +2607,17 @@ export default function App() {
         time: "09:00",
         notes: "",
       }));
-      await Promise.all([loadData(), loadScheduleData()]);
+      await Promise.all([loadData({ showGlobalLoader: false }), loadScheduleData()]);
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setConsultationSubmitting(false);
     }
   }
 
   async function removePatient(id) {
     setError("");
+    setPatientRemoving(true);
     try {
       if (patientPhotos[id]?.length) {
         revokePhotoEntries(patientPhotos[id]);
@@ -2381,9 +2699,11 @@ export default function App() {
         setShowMealPlanHistoryModal(false);
         navigate("/patients", { replace: true });
       }
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setPatientRemoving(false);
     }
   }
 
@@ -2769,6 +3089,7 @@ export default function App() {
   async function saveMealPlan() {
     if (!routePatientId) return;
     setError("");
+    setMealPlanSubmitting(true);
     const savedAt = new Date().toISOString();
     const rawDescription = (patientMealPlanDescription[routePatientId] || "").trim();
     const description = rawDescription || "Plano sem descricao";
@@ -2837,6 +3158,8 @@ export default function App() {
       toggleMealPlanEditor(false);
     } catch (requestError) {
       setError(requestError.message);
+    } finally {
+      setMealPlanSubmitting(false);
     }
   }
 
@@ -3062,7 +3385,7 @@ export default function App() {
     setError("");
     try {
       await api.deleteFood(id);
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -3088,7 +3411,7 @@ export default function App() {
         phone,
         email,
       });
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -3131,7 +3454,7 @@ export default function App() {
         fiber: Number(editFoodForm.fiber),
       });
       closeFoodEditor();
-      await loadData();
+      await loadData({ showGlobalLoader: false });
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -3423,6 +3746,7 @@ export default function App() {
                           type="button"
                           className="patient-btn patient-btn-danger-soft"
                           onClick={() => removePatient(selectedPatient.id)}
+                          disabled={patientRemoving}
                         >
                           <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M4 7h16" />
@@ -3430,7 +3754,7 @@ export default function App() {
                             <path d="M7 7l1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9L17 7" />
                             <path d="M10 11v5M14 11v5" />
                           </svg>
-                          Remover paciente
+                          {patientRemoving ? "Removendo..." : "Remover paciente"}
                         </button>
                       </div>
                     </div>
@@ -4066,9 +4390,9 @@ export default function App() {
                               type="button"
                               className="patient-action-btn"
                               onClick={saveMealPlan}
-                              disabled={!selectedMealPlanItems.length}
+                              disabled={!selectedMealPlanItems.length || mealPlanSubmitting}
                             >
-                              Salvar plano alimentar
+                              {mealPlanSubmitting ? "Salvando plano..." : "Salvar plano alimentar"}
                             </button>
                           </div>
                         </div>
@@ -4267,52 +4591,99 @@ export default function App() {
                         <div className="patient-progress-head-copy">
                           <div className="patient-progress-title-row">
                             <h5>Grafico de Progressao</h5>
-                            <div className="patient-progress-badge">
-                              {progressDelta !== null ? (progressDelta <= 0 ? "Evolucao positiva" : "Atencao") : "Sem dados"}
+                            <div className="patient-progress-badge">{progressBadgeLabel}</div>
+                            <div className="patient-progress-mode-toggle" role="tablist" aria-label="Tipo de grafico de progressao">
+                              <button
+                                type="button"
+                                className={`patient-progress-mode-btn ${isWeightProgressChart ? "active" : ""}`}
+                                onClick={() => setProgressChartMode("weight")}
+                                role="tab"
+                                aria-selected={isWeightProgressChart}
+                              >
+                                Pesagem
+                              </button>
+                              <button
+                                type="button"
+                                className={`patient-progress-mode-btn ${!isWeightProgressChart ? "active" : ""}`}
+                                onClick={() => setProgressChartMode("measurements")}
+                                role="tab"
+                                aria-selected={!isWeightProgressChart}
+                              >
+                                Medidas e dobras
+                              </button>
                             </div>
                           </div>
-                          <p>Acompanhe tendencia, meta e proximos passos do paciente.</p>
+                          <p>
+                            {isWeightProgressChart
+                              ? "Acompanhe tendencia, meta e proximos passos do paciente."
+                              : "Dados puxados diretamente das avaliacoes fisicas."}
+                          </p>
                         </div>
                         <div className="patient-metrics-actions">
                           <button
                             type="button"
                             className="patient-action-btn patient-progress-primary-btn"
-                            onClick={openWeightEntryModal}
-                            disabled={!canRegisterWeightProgress}
+                            onClick={isWeightProgressChart ? openWeightEntryModal : openPhysicalAssessmentCreateForm}
+                            disabled={progressPrimaryActionDisabled}
                             title={
-                              !canRegisterWeightProgress
+                              isWeightProgressChart && !canRegisterWeightProgress
                                 ? "Cadastre uma avaliacao fisica para liberar este recurso."
                                 : undefined
                             }
                           >
-                            Registrar progressão de pesagem
+                            {progressPrimaryActionLabel}
                           </button>
                         </div>
                       </div>
                       <div className="patient-progress-kpi-strip">
-                        <article className="patient-progress-kpi-item">
-                          <span>Peso atual</span>
-                          <strong>{progressCurrent !== null ? `${formatDecimal(progressCurrent)} kg` : "--"}</strong>
-                        </article>
-                        <article className="patient-progress-kpi-item">
-                          <span>Variacao</span>
-                          <strong>
-                            {progressDelta !== null
-                              ? `${progressDelta > 0 ? "+" : ""}${formatDecimal(progressDelta)} kg`
-                              : "--"}
-                          </strong>
-                        </article>
-                        <article className="patient-progress-kpi-item">
-                          <span>Meta</span>
-                          <strong>{progressTarget !== null ? `${formatDecimal(progressTarget)} kg` : "--"}</strong>
-                        </article>
+                        {isWeightProgressChart ? (
+                          <>
+                            <article className="patient-progress-kpi-item">
+                              <span>Peso atual</span>
+                              <strong>{progressCurrent !== null ? `${formatDecimal(progressCurrent)} kg` : "--"}</strong>
+                            </article>
+                            <article className="patient-progress-kpi-item">
+                              <span>Variacao</span>
+                              <strong>
+                                {progressDelta !== null
+                                  ? `${progressDelta > 0 ? "+" : ""}${formatDecimal(progressDelta)} kg`
+                                  : "--"}
+                              </strong>
+                            </article>
+                            <article className="patient-progress-kpi-item">
+                              <span>Meta</span>
+                              <strong>{progressTarget !== null ? `${formatDecimal(progressTarget)} kg` : "--"}</strong>
+                            </article>
+                          </>
+                        ) : (
+                          <>
+                            <article className="patient-progress-kpi-item">
+                              <span>Medida atual (cintura)</span>
+                              <strong>
+                                {progressMeasurementCurrent !== null
+                                  ? `${formatDecimal(progressMeasurementCurrent)} cm`
+                                  : "--"}
+                              </strong>
+                            </article>
+                            <article className="patient-progress-kpi-item">
+                              <span>Soma de dobras</span>
+                              <strong>
+                                {progressSkinfoldCurrent !== null ? `${formatDecimal(progressSkinfoldCurrent)} mm` : "--"}
+                              </strong>
+                            </article>
+                            <article className="patient-progress-kpi-item">
+                              <span>Avaliacoes usadas</span>
+                              <strong>{progressMeasurementEntries.length || "--"}</strong>
+                            </article>
+                          </>
+                        )}
                       </div>
-                      {!canRegisterWeightProgress && (
+                      {isWeightProgressChart && !canRegisterWeightProgress && (
                         <p className="patient-panel-hint patient-progress-head-hint">
                           Cadastre uma avaliacao fisica para liberar o registro de progressao.
                         </p>
                       )}
-                      {shouldShowTargetRefreshAlert && (
+                      {isWeightProgressChart && shouldShowTargetRefreshAlert && (
                         <div className="patient-metrics-alert">
                           <span>Meta atual atingida. Defina uma nova meta no gráfico de progressão.</span>
                         </div>
@@ -4321,58 +4692,123 @@ export default function App() {
                         <div>
                           <div className="patient-progress-chart-shell">
                             <div className="patient-progress-chart-legend">
-                              {progressScale && (
-                                <span>
-                                  Escala: {formatDecimal(progressScale.minValue)} a {formatDecimal(progressScale.maxValue)} kg
-                                </span>
-                              )}
-                              <div className="patient-progress-chart-legend-actions">
-                                <button
-                                  type="button"
-                                  className="patient-progress-history-btn"
-                                  onClick={() => setShowProgressHistoryModal(true)}
-                                >
-                                  Historico
-                                </button>
-                                {progressTarget !== null && (
-                                  <span className="patient-progress-target-chip">
-                                    Meta: {formatDecimal(progressTarget)} kg
-                                  </span>
+                              <div className="patient-progress-chart-legend-copy">
+                                {isWeightProgressChart ? (
+                                  progressScale && (
+                                    <span>
+                                      Escala: {formatDecimal(progressScale.minValue)} a {formatDecimal(progressScale.maxValue)} kg
+                                    </span>
+                                  )
+                                ) : progressMeasurementScale && progressSkinfoldScale ? (
+                                  <>
+                                    <span>
+                                      Escala medidas: {formatDecimal(progressMeasurementScale.minValue)} a{" "}
+                                      {formatDecimal(progressMeasurementScale.maxValue)} cm | Dobras:{" "}
+                                      {formatDecimal(progressSkinfoldScale.minValue)} a{" "}
+                                      {formatDecimal(progressSkinfoldScale.maxValue)} mm
+                                    </span>
+                                    <div className="patient-progress-series-legend">
+                                      <span className="patient-progress-series-item">
+                                        <i className="patient-progress-series-swatch is-measure" aria-hidden="true" />
+                                        Medidas (cintura/media) - eixo esquerdo (cm)
+                                      </span>
+                                      <span className="patient-progress-series-item">
+                                        <i className="patient-progress-series-swatch is-skinfold" aria-hidden="true" />
+                                        Dobras (soma) - eixo direito (mm)
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <span>Sem avaliacoes fisicas suficientes para montar o grafico.</span>
                                 )}
-                                <button
-                                  type="button"
-                                  className={`patient-progress-target-btn ${shouldShowTargetRefreshAlert ? "is-alert" : ""}`}
-                                  onClick={openTargetRefreshModal}
-                                >
-                                  {progressTarget === null
-                                    ? "Definir meta"
-                                    : shouldShowTargetRefreshAlert
-                                      ? "Nova meta"
-                                      : "Ajustar meta"}
-                                </button>
-                                {isDevelopmentMode && hasEvolutionData && (
-                                  <button
-                                    type="button"
-                                    className="patient-progress-dev-btn"
-                                    onClick={clearPatientEvolutionData}
-                                  >
-                                    Remover dados
-                                  </button>
+                              </div>
+                              <div className="patient-progress-chart-legend-actions">
+                                {isWeightProgressChart ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="patient-progress-history-btn"
+                                      onClick={() => setShowProgressHistoryModal(true)}
+                                    >
+                                      Historico
+                                    </button>
+                                    {progressTarget !== null && (
+                                      <span className="patient-progress-target-chip">
+                                        Meta: {formatDecimal(progressTarget)} kg
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className={`patient-progress-target-btn ${shouldShowTargetRefreshAlert ? "is-alert" : ""}`}
+                                      onClick={openTargetRefreshModal}
+                                    >
+                                      {progressTarget === null
+                                        ? "Definir meta"
+                                        : shouldShowTargetRefreshAlert
+                                          ? "Nova meta"
+                                          : "Ajustar meta"}
+                                    </button>
+                                    {isDevelopmentMode && hasEvolutionData && (
+                                      <button
+                                        type="button"
+                                        className="patient-progress-dev-btn"
+                                        onClick={clearPatientEvolutionData}
+                                      >
+                                        Remover dados
+                                      </button>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="patient-progress-history-btn"
+                                      onClick={() => setShowPhysicalAssessmentModal(true)}
+                                    >
+                                      Avaliacoes fisicas
+                                    </button>
+                                    <span className="patient-progress-target-chip">Origem: avaliacoes fisicas</span>
+                                  </>
                                 )}
                               </div>
                             </div>
                             <svg
+                              ref={progressChartRef}
                               className="patient-progress-chart"
                               viewBox={`0 0 ${progressChartWidth} ${progressChartHeight}`}
                               preserveAspectRatio="xMinYMid meet"
                               role="img"
-                              aria-label="Grafico de progressao do paciente"
+                              aria-label={
+                                isWeightProgressChart
+                                  ? "Grafico de progressao de pesagem do paciente"
+                                  : "Grafico de medidas e dobras das avaliacoes fisicas"
+                              }
                               onClick={() => setActiveProgressPointId("")}
                             >
                               <defs>
                                 <linearGradient id="patientProgressGradient" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="0%" stopColor="#1ea57b" stopOpacity="0.46" />
-                                  <stop offset="100%" stopColor="#1ea57b" stopOpacity="0.05" />
+                                  <stop
+                                    offset="0%"
+                                    stopColor={theme === "dark" ? "#35eac6" : "#1ea57b"}
+                                    stopOpacity={theme === "dark" ? "0.34" : "0.46"}
+                                  />
+                                  <stop
+                                    offset="100%"
+                                    stopColor={theme === "dark" ? "#35eac6" : "#1ea57b"}
+                                    stopOpacity={theme === "dark" ? "0.02" : "0.05"}
+                                  />
+                                </linearGradient>
+                                <linearGradient id="patientMeasuresGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop
+                                    offset="0%"
+                                    stopColor={theme === "dark" ? "#58a6ff" : "#2f6bff"}
+                                    stopOpacity={theme === "dark" ? "0.28" : "0.18"}
+                                  />
+                                  <stop
+                                    offset="100%"
+                                    stopColor={theme === "dark" ? "#58a6ff" : "#2f6bff"}
+                                    stopOpacity={theme === "dark" ? "0.03" : "0.02"}
+                                  />
                                 </linearGradient>
                               </defs>
                               <rect
@@ -4382,7 +4818,9 @@ export default function App() {
                                 height={progressChartBottomY - progressChartPaddingY}
                                 className="patient-progress-canvas"
                               />
-                              {progressYAxisTicks.map((tick, index) => (
+                              {isWeightProgressChart ? (
+                                <>
+                                  {progressYAxisTicks.map((tick, index) => (
                                 <g key={`tick-${tick.value}-${index}`}>
                                   <path
                                     d={`M ${progressChartLeftX} ${tick.y} L ${progressChartRightX} ${tick.y}`}
@@ -4397,7 +4835,7 @@ export default function App() {
                                     {formatDecimal(tick.value)}
                                   </text>
                                 </g>
-                              ))}
+                                  ))}
                               {progressTargetY !== null && (
                                 <>
                                   <path
@@ -4423,40 +4861,31 @@ export default function App() {
                                   <path d={progressPath} className="patient-progress-line" />
                                 </>
                               )}
-                              {progressPoints.map((point) => {
+                                  {progressPoints.map((point) => {
                                 const pointActionId = point.sourceEntryId || point.key;
                                 const isActionVisible = point.canManage && activeProgressPointId === pointActionId;
-                                const actionsWidth = 126;
-                                const actionsHeight = 34;
+                                const actionsWidth = 132;
+                                const actionsHeight = 36;
                                 const actionsX = Math.max(
                                   progressChartLeftX + 6,
                                   Math.min(point.x - actionsWidth / 2, progressChartRightX - actionsWidth - 6),
                                 );
-                                const rawActionsY = point.y < progressChartPaddingY + 46 ? point.y + 12 : point.y - 46;
+                                const preferredAboveY = point.y - actionsHeight - 10;
+                                const preferredBelowY = point.y + 10;
                                 const actionsY = Math.max(
                                   progressChartPaddingY + 4,
-                                  Math.min(rawActionsY, progressChartBottomY - actionsHeight - 4),
+                                  Math.min(
+                                    preferredAboveY >= progressChartPaddingY + 4
+                                      ? preferredAboveY
+                                      : preferredBelowY,
+                                    progressChartBottomY - actionsHeight - 4,
+                                  ),
                                 );
                                 const connectorStartY = actionsY < point.y ? actionsY + actionsHeight : actionsY;
                                 return (
                                   <g
                                     key={point.key}
                                     className={`patient-progress-point-group ${point.canManage ? "is-manageable" : ""} ${isActionVisible ? "is-active" : ""}`}
-                                    onMouseEnter={() => {
-                                      if (point.canManage) setActiveProgressPointId(pointActionId);
-                                    }}
-                                    onMouseLeave={() => {
-                                      if (!point.canManage) return;
-                                      setActiveProgressPointId((current) => (current === pointActionId ? "" : current));
-                                    }}
-                                    onFocus={() => {
-                                      if (point.canManage) setActiveProgressPointId(pointActionId);
-                                    }}
-                                    onBlur={(event) => {
-                                      if (!point.canManage) return;
-                                      if (event.currentTarget.contains(event.relatedTarget)) return;
-                                      setActiveProgressPointId((current) => (current === pointActionId ? "" : current));
-                                    }}
                                   >
                                     {point.isLatest && (
                                       <circle cx={point.x} cy={point.y} r="12" className="patient-progress-point-glow" />
@@ -4478,6 +4907,20 @@ export default function App() {
                                         tabIndex={0}
                                         role="button"
                                         aria-label={`Gerenciar ponto de ${formatDecimal(point.value)} kg`}
+                                        onMouseEnter={() => setActiveProgressPointId(pointActionId)}
+                                        onMouseLeave={(event) => {
+                                          if (event.currentTarget.parentElement?.contains(event.relatedTarget)) return;
+                                          setActiveProgressPointId((current) =>
+                                            current === pointActionId ? "" : current,
+                                          );
+                                        }}
+                                        onFocus={() => setActiveProgressPointId(pointActionId)}
+                                        onBlur={(event) => {
+                                          if (event.currentTarget.parentElement?.contains(event.relatedTarget)) return;
+                                          setActiveProgressPointId((current) =>
+                                            current === pointActionId ? "" : current,
+                                          );
+                                        }}
                                         onClick={(event) => {
                                           event.stopPropagation();
                                           setActiveProgressPointId((current) => (current === pointActionId ? "" : pointActionId));
@@ -4524,15 +4967,113 @@ export default function App() {
                                     )}
                                   </g>
                                 );
-                              })}
+                                  })}
+                                </>
+                              ) : (
+                                <>
+                                  <text
+                                    x={progressChartLeftX + 2}
+                                    y={progressChartPaddingY - 8}
+                                    className="patient-progress-axis-caption"
+                                    textAnchor="start"
+                                  >
+                                    Medidas (cm)
+                                  </text>
+                                  <text
+                                    x={progressChartRightX - 2}
+                                    y={progressChartPaddingY - 8}
+                                    className="patient-progress-axis-caption is-right"
+                                    textAnchor="end"
+                                  >
+                                    Dobras (mm)
+                                  </text>
+                                  {progressMeasurementYAxisTicks.map((tick, index) => (
+                                    <g key={`measurement-tick-${tick.value}-${index}`}>
+                                      <path
+                                        d={`M ${progressChartLeftX} ${tick.y} L ${progressChartRightX} ${tick.y}`}
+                                        className={index === progressMeasurementYAxisTicks.length - 1 ? "patient-progress-axis" : "patient-progress-grid-line"}
+                                      />
+                                      <text
+                                        x={progressChartLeftX - 10}
+                                        y={tick.y + 4}
+                                        className="patient-progress-y-label"
+                                        textAnchor="end"
+                                      >
+                                        {formatDecimal(tick.value)}
+                                      </text>
+                                    </g>
+                                  ))}
+                                  {progressSkinfoldYAxisTicks.map((tick, index) => (
+                                    <text
+                                      key={`skinfold-tick-${tick.value}-${index}`}
+                                      x={progressChartRightX + 10}
+                                      y={tick.y + 4}
+                                      className="patient-progress-y-label patient-progress-y-label-right"
+                                      textAnchor="start"
+                                    >
+                                      {formatDecimal(tick.value)}
+                                    </text>
+                                  ))}
+                                  {progressMeasurementPath && (
+                                    <>
+                                      <path
+                                        d={`${progressMeasurementPath} L ${progressChartRightX} ${progressChartBottomY} L ${progressChartLeftX} ${progressChartBottomY} Z`}
+                                        fill="url(#patientMeasuresGradient)"
+                                      />
+                                      <path
+                                        d={progressMeasurementPath}
+                                        className="patient-progress-line patient-progress-line-measure"
+                                      />
+                                    </>
+                                  )}
+                                  {progressSkinfoldPath && (
+                                    <path d={progressSkinfoldPath} className="patient-progress-line patient-progress-line-skinfold" />
+                                  )}
+                                  {progressMeasurementPoints.map((point) => (
+                                    <g key={point.key}>
+                                      <circle
+                                        cx={point.x}
+                                        cy={point.measurementY}
+                                        r="4.8"
+                                        className="patient-progress-point patient-progress-point-measure"
+                                      >
+                                        <title>{`${formatDecimal(point.measurementValue)} cm`}</title>
+                                      </circle>
+                                      <circle
+                                        cx={point.x}
+                                        cy={point.skinfoldY}
+                                        r="4.4"
+                                        className="patient-progress-point patient-progress-point-skinfold"
+                                      >
+                                        <title>{`${formatDecimal(point.skinfoldTotal)} mm`}</title>
+                                      </circle>
+                                    </g>
+                                  ))}
+                                  {progressMeasurementEntries.length === 0 && (
+                                    <text
+                                      x={(progressChartLeftX + progressChartRightX) / 2}
+                                      y={(progressChartPaddingY + progressChartBottomY) / 2}
+                                      className="patient-progress-empty-text"
+                                      textAnchor="middle"
+                                    >
+                                      Registre avaliacoes fisicas para visualizar medidas e dobras.
+                                    </text>
+                                  )}
+                                </>
+                              )}
                             </svg>
                           </div>
 
                           <div className="patient-progress-labels">
-                            {progressLabels.map((label, index) => (
+                            {(isWeightProgressChart ? progressLabels : progressMeasurementLabels).map((label, index) => (
                               <span
                                 key={`${label}-${index}`}
-                                className={index === progressLabels.length - 1 ? "is-latest" : ""}
+                                className={
+                                  index ===
+                                  (isWeightProgressChart ? progressLabels.length : progressMeasurementLabels.length) - 1
+                                    ? "is-latest"
+                                    : ""
+                                }
                               >
                                 {label}
                               </span>
@@ -4936,7 +5477,13 @@ export default function App() {
                           {!isPhysicalAssessmentReadOnly && (
                             <div className="patient-weight-entry-actions">
                               <button type="submit" className="patient-action-btn" disabled={physicalAssessmentSubmitting}>
-                                {physicalAssessmentFormMode === "edit" ? "Atualizar avaliação" : "Salvar avaliação"}
+                                {physicalAssessmentSubmitting
+                                  ? physicalAssessmentFormMode === "edit"
+                                    ? "Atualizando..."
+                                    : "Salvando..."
+                                  : physicalAssessmentFormMode === "edit"
+                                    ? "Atualizar avaliação"
+                                    : "Salvar avaliação"}
                               </button>
                             </div>
                           )}
@@ -4986,8 +5533,16 @@ export default function App() {
                           </div>
 
                           <div className="patient-weight-entry-actions">
-                            <button type="submit" className="patient-action-btn" disabled={!canRegisterWeightProgress}>
-                              {editingWeightEntryId ? "Salvar alteracao" : "Salvar progressao"}
+                            <button
+                              type="submit"
+                              className="patient-action-btn"
+                              disabled={!canRegisterWeightProgress || weightEntrySubmitting}
+                            >
+                              {weightEntrySubmitting
+                                ? "Salvando..."
+                                : editingWeightEntryId
+                                  ? "Salvar alteracao"
+                                  : "Salvar progressao"}
                             </button>
                             {isDevelopmentMode && hasEvolutionData && (
                               <button
@@ -5045,8 +5600,8 @@ export default function App() {
                           </div>
 
                           <div className="patient-weight-entry-actions">
-                            <button type="submit" className="patient-action-btn">
-                              Salvar nova meta
+                            <button type="submit" className="patient-action-btn" disabled={targetRefreshSubmitting}>
+                              {targetRefreshSubmitting ? "Salvando..." : "Salvar nova meta"}
                             </button>
                           </div>
                         </form>
@@ -5198,11 +5753,21 @@ export default function App() {
                     Agendar nova consulta
                   </button>
                   {showConsultationForm && (
-                    <div className="schedule-sheet-backdrop" onClick={() => setShowConsultationForm(false)}>
+                    <div
+                      className="schedule-sheet-backdrop"
+                      onClick={() => {
+                        if (!consultationSubmitting) setShowConsultationForm(false);
+                      }}
+                    >
                       <div className="schedule-sheet" onClick={(event) => event.stopPropagation()}>
                         <div className="schedule-sheet-header">
                           <h3>Agendar Consulta</h3>
-                          <button type="button" className="sheet-close" onClick={() => setShowConsultationForm(false)}>
+                          <button
+                            type="button"
+                            className="sheet-close"
+                            onClick={() => setShowConsultationForm(false)}
+                            disabled={consultationSubmitting}
+                          >
                             Fechar
                           </button>
                         </div>
@@ -5212,6 +5777,7 @@ export default function App() {
                             onChange={(event) =>
                               setConsultationForm((prev) => ({ ...prev, patientId: event.target.value }))
                             }
+                            disabled={consultationSubmitting}
                           >
                             <option value="">Paciente (opcional)</option>
                             {patients.map((patient) => (
@@ -5227,6 +5793,7 @@ export default function App() {
                             }
                             placeholder="Tipo (ex.: Retorno)"
                             required
+                            disabled={consultationSubmitting}
                           />
                           <input
                             type="text"
@@ -5241,6 +5808,7 @@ export default function App() {
                             inputMode="numeric"
                             maxLength={10}
                             required
+                            disabled={consultationSubmitting}
                           />
                           <input
                             type="text"
@@ -5255,6 +5823,7 @@ export default function App() {
                             inputMode="numeric"
                             maxLength={5}
                             required
+                            disabled={consultationSubmitting}
                           />
                           <input
                             value={consultationForm.notes}
@@ -5262,8 +5831,11 @@ export default function App() {
                               setConsultationForm((prev) => ({ ...prev, notes: event.target.value }))
                             }
                             placeholder="Observacoes (opcional)"
+                            disabled={consultationSubmitting}
                           />
-                          <button type="submit">Salvar consulta</button>
+                          <button type="submit" disabled={consultationSubmitting}>
+                            {consultationSubmitting ? "Salvando..." : "Salvar consulta"}
+                          </button>
                         </form>
                       </div>
                     </div>
@@ -5308,7 +5880,9 @@ export default function App() {
                   value={patientForm.email}
                   onChange={(event) => setPatientForm((prev) => ({ ...prev, email: event.target.value }))}
                 />
-                <button type="submit">Adicionar paciente</button>
+                <button type="submit" disabled={patientSubmitting}>
+                  {patientSubmitting ? "Salvando..." : "Adicionar paciente"}
+                </button>
               </form>
 
               <div className="patients-catalog-controls">
@@ -5576,7 +6150,9 @@ export default function App() {
                       onChange={(event) => setFoodForm((prev) => ({ ...prev, fiber: event.target.value }))}
                     />
                   </div>
-                  <button type="submit">Salvar alimento</button>
+                  <button type="submit" disabled={foodSubmitting}>
+                    {foodSubmitting ? "Salvando..." : "Salvar alimento"}
+                  </button>
                 </form>
               )}
 
